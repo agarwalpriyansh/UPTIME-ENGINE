@@ -1,78 +1,126 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
+	"net"
 )
 
-// This is what will pass through the channel.
-type PingResult struct {
-	URL        string
-	StatusCode int
-	Latency    time.Duration
-	Up         bool
+// 1. We create a Job struct so we can mix HTTP and TCP tasks in the same queue
+type MonitorJob struct {
+	Type   string // "HTTP" or "TCP"
+	Target string // e.g., "https://dsdryfruits.in" OR "redis.mycompany.com:6379"
 }
 
-// Notice it takes a channel ('c') as an argument instead of returning a value.
-func checkURL(url string, c chan PingResult) {
-	startTime := time.Now()
-	resp, err := http.Get(url)
-	latency := time.Since(startTime)
+// 2. We update PingResult to include the Job details
+type PingResult struct {
+	Job        MonitorJob
+	StatusCode int // We leave this as 0 for TCP checks
+	Latency    time.Duration
+	Up         bool
+	ErrorMsg   string
+}
 
-	if err != nil {
-		// Send the failure result back through the channel pipe
-		c <- PingResult{URL: url, Up: false, Latency: latency}
-		return
-	}
-	defer resp.Body.Close()
+// 3. The Worker now processes MonitorJobs
+func worker(id int, jobs <-chan MonitorJob, results chan<- PingResult) {
+	for job := range jobs {
+		
+		// --- IF IT IS AN HTTP JOB ---
+		if job.Type == "HTTP" {
+			startTime := time.Now()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
-	// Send the success result back through the channel pipe
-	c <- PingResult{
-		URL:        url,
-		StatusCode: resp.StatusCode,
-		Latency:    latency,
-		Up:         resp.StatusCode == 200,
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, job.Target, nil)
+			if err != nil {
+				results <- PingResult{Job: job, Up: false, Latency: time.Since(startTime), ErrorMsg: err.Error()}
+				cancel()
+				continue
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			latency := time.Since(startTime)
+
+			if err != nil {
+				results <- PingResult{Job: job, Up: false, Latency: latency, ErrorMsg: err.Error()}
+				cancel()
+				continue
+			}
+
+			results <- PingResult{Job: job, StatusCode: resp.StatusCode, Latency: latency, Up: resp.StatusCode == 200}
+			resp.Body.Close()
+			cancel()
+			
+		// --- IF IT IS A TCP JOB (NEW!) ---
+		} else if job.Type == "TCP" {
+			startTime := time.Now()
+			
+			// net.DialTimeout attempts to open a raw TCP connection to an IP and Port
+			conn, err := net.DialTimeout("tcp", job.Target, 5*time.Second)
+			latency := time.Since(startTime)
+
+			if err != nil {
+				// The port is closed, or the server is down
+				results <- PingResult{Job: job, Up: false, Latency: latency, ErrorMsg: err.Error()}
+				continue
+			}
+			
+			// If we connect successfully, we MUST close the connection immediately
+			// so we don't leave ghost connections on the target server!
+			conn.Close() 
+			results <- PingResult{Job: job, Up: true, Latency: latency}
+		}
 	}
 }
 
 func main() {
-	urls := []string{
-		"https://dsdryfruits.in",
-		"https://google.com",
-		"https://github.com",
-		"https://stackoverflow.com/questions",
-		"https://golang.org",
-		"https://thiswebsitedoesnotexist.com.invalid", // This will fail
+	// 4. We can now load our queue with completely different types of infrastructure!
+	jobsList := []MonitorJob{
+		{Type: "HTTP", Target: "https://dsdryfruits.in"},
+		{Type: "HTTP", Target: "https://google.com"},
+		// Let's test some standard TCP ports on Google's public DNS servers
+		{Type: "TCP", Target: "8.8.8.8:53"}, // DNS port (Usually open)
+		{Type: "TCP", Target: "8.8.8.8:22"}, // SSH port (Google will block this, so it should fail!)
 	}
 
-	// 3. Create a channel that can send and receive PingResult structs
-	resultsChannel := make(chan PingResult)
+	numWorkers := 3
+	numJobs := len(jobsList)
 
-	fmt.Println("Starting Day 2 Concurrent Monitor...")
+	jobs := make(chan MonitorJob, numJobs)
+	results := make(chan PingResult, numJobs)
+
+	fmt.Println("Starting Day 5 Multi-Protocol Monitor...")
 	fmt.Println("--------------------------------------------------")
-	
-	// Start a timer for the whole program
 	programStart := time.Now()
 
-	// 4. Fire off a background goroutine for every single URL
-	// They all start sprinting at the exact same time
-	for _, url := range urls {
-		go checkURL(url, resultsChannel)
+	// We start 3 goroutines. They will immediately pause because the 'jobs' channel is empty.
+	for w := 1; w <= numWorkers; w++ {
+		go worker(w, jobs, results)
 	}
 
-	// 5. Wait to receive the results from the channel
-	// We know exactly how many URLs we checked (len(urls)), 
-	// so we wait to hear back that many times.
-	for i := 0; i < len(urls); i++ {
-		result := <-resultsChannel
-		if result.Up {
-			fmt.Printf("[SUCCESS] %s is UP (Status: %d, Latency: %v)\n", result.URL, result.StatusCode, result.Latency)
-		} else {
-			fmt.Printf("[DOWN]    %s is DOWN or Unreachable (Latency: %v)\n", result.URL, result.Latency)
-		}
+	// We rapidly send all jobs into the jobs channel
+	for _, j := range jobsList {
+		jobs <- j
 	}
 	
+	// CRITICAL: We close the jobs channel. This tells the workers: "No more jobs are coming, 
+	// when the queue is empty, you can stop running."
+	close(jobs)
+
+	for i := 1; i <= numJobs; i++ {
+		result := <-results
+		if result.Up {
+			if result.Job.Type == "HTTP" {
+				fmt.Printf("[HTTP SUCCESS] %s is UP (Status: %d, Latency: %v)\n", result.Job.Target, result.StatusCode, result.Latency)
+			} else {
+				fmt.Printf("[TCP SUCCESS]  %s port is OPEN (Latency: %v)\n", result.Job.Target, result.Latency)
+			}
+		} else {
+			fmt.Printf("[DOWN] %s failed: %s\n", result.Job.Target, result.ErrorMsg)
+		}
+	}
+
 	fmt.Println("--------------------------------------------------")
 	fmt.Printf("Total execution time: %v\n", time.Since(programStart))
 }
