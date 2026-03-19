@@ -75,22 +75,22 @@ func worker(id int, jobs <-chan MonitorJob, results chan<- PingResult) {
 }
 
 func main() {
-	// 4. We can now load our queue with completely different types of infrastructure!
-	jobsList := []MonitorJob{
-		{Type: "HTTP", Target: "https://dsdryfruits.in"},
-		{Type: "HTTP", Target: "https://google.com"},
-		// Let's test some standard TCP ports on Google's public DNS servers
-		{Type: "TCP", Target: "8.8.8.8:53"}, // DNS port (Usually open)
-		{Type: "TCP", Target: "8.8.8.8:22"}, // SSH port (Google will block this, so it should fail!)
-	}
+	var jobsList []MonitorJob
 
-	numWorkers := 3
+	// 1. SYNTHETIC LOAD GENERATION
+	// We are going to generate 1,000 total jobs (500 HTTP, 500 TCP)
+	fmt.Println("Generating 1,000 Synthetic Jobs...")
+	for i := 0; i < 500; i++ {
+		jobsList = append(jobsList, MonitorJob{Type: "HTTP", Target: "https://google.com"})
+		jobsList = append(jobsList, MonitorJob{Type: "TCP", Target: "8.8.8.8:53"})
+	}
+	numWorkers := 50
 	numJobs := len(jobsList)
 
 	jobs := make(chan MonitorJob, numJobs)
 	results := make(chan PingResult, numJobs)
 
-	fmt.Println("Starting Day 5 Multi-Protocol Monitor...")
+	fmt.Printf("Starting Stress Test with %d Workers...\n", numWorkers)
 	fmt.Println("--------------------------------------------------")
 	programStart := time.Now()
 
@@ -107,6 +107,8 @@ func main() {
 	// CRITICAL: We close the jobs channel. This tells the workers: "No more jobs are coming, 
 	// when the queue is empty, you can stop running."
 	close(jobs)
+
+	
 
 	for i := 1; i <= numJobs; i++ {
 		result := <-results
