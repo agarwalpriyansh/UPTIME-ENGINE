@@ -10,12 +10,19 @@ import (
 	"github.com/joho/godotenv"
 	"monitor-engine/models"
 	"monitor-engine/worker"
+	"monitor-engine/database"
 )
 
 func main() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("No .env file found, using default environment variables")
+	}
+
+	// Initialize Redis connection
+	err = database.InitRedis()
+	if err != nil {
+		log.Fatalf("Fatal Error: %v\n", err) // Crash the app if the DB is down
 	}
 
 	// 2. Read the worker count dynamically, default to 10 if not found
