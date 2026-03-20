@@ -25,6 +25,15 @@ func main() {
 		log.Fatalf("Fatal Error: %v\n", err) // Crash the app if the DB is down
 	}
 
+	// Initialize Postgres 
+	err = database.InitPostgres()
+	if err != nil {
+		log.Fatalf("Fatal Error: %v\n", err)
+	}
+
+	// Start the Background Flusher 
+	go worker.StartFlusher()
+
 	// 2. Read the worker count dynamically, default to 10 if not found
 	workerStr := os.Getenv("WORKER_COUNT")
 	numWorkers, err := strconv.Atoi(workerStr)
@@ -101,4 +110,8 @@ func main() {
 	
 	fmt.Printf("Successful Checks: %d\n", successCount)
 	fmt.Printf("Failed Checks: %d\n", failCount)
+
+	// Wait for 15 seconds so our 10-second background flusher has time to run!
+	fmt.Println("Waiting for background flusher to save data to PostgreSQL...")
+	time.Sleep(15 * time.Second)
 }

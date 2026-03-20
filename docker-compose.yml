@@ -6,3 +6,14 @@ services:
     ports:
       - "6379:6379"
     restart: always
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: uptime-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: monitor_db
+    ports:
+      - "5432:5432"
+    restart: always
