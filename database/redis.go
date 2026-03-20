@@ -2,10 +2,13 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"monitor-engine/models"
+
 )
 
 // We make this variable accessible to other packages
@@ -30,5 +33,24 @@ func InitRedis() error {
 	}
 
 	fmt.Println("[DATABASES] Successfully connected to Redis!")
+	return nil
+}
+
+func SaveResult(result models.PingResult) error {
+	// 1. Convert the Go struct into a JSON byte array
+	jsonData, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %v", err)
+	}
+
+	// 2. We use a background context for the database write
+	ctx := context.Background()
+
+	// 3. RPush (Right Push) adds this JSON string to the end of a list named "ping_buffer"
+	err = RedisClient.RPush(ctx, "ping_buffer", jsonData).Err()
+	if err != nil {
+		return fmt.Errorf("failed to write to Redis: %v", err)
+	}
+
 	return nil
 }

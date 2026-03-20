@@ -68,8 +68,21 @@ func main() {
 	successCount := 0
 	failCount := 0
 
+	fmt.Println("Processing results and buffering to Redis...")
+
 	for i := 1; i <= numJobs; i++ {
 		result := <-results
+		
+		// Add the exact time the result was processed
+		result.Timestamp = time.Now()
+
+		// Save it to our high-speed Redis buffer
+		err := database.SaveResult(result)
+		if err != nil {
+			fmt.Printf("[DB ERROR] %v\n", err)
+		}
+
+		// Keep track of stats for our final printout
 		if result.Up {
 			successCount++
 		} else {
