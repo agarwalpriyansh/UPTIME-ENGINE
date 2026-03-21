@@ -68,6 +68,7 @@ func main() {
 	}
 	
 	http.HandleFunc("/api/monitor", server.AddMonitorHandler)
+	http.HandleFunc("/api/status", server.GetStatusHandler)
 
 	fmt.Println("==================================================")
 	fmt.Println("🚀 Uptime Engine API is LIVE on http://localhost:8080")

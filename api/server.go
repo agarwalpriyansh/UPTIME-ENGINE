@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"monitor-engine/models"
+	"monitor-engine/database"
 )
 
 // APIServer holds our dependencies (like the jobs queue)
@@ -39,4 +40,31 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": fmt.Sprintf("Successfully queued %s check for %s", job.Type, job.Target),
 	})
+}
+
+// GetStatusHandler handles GET /api/status
+func (s *APIServer) GetStatusHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Only allow GET requests
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 2. Fetch the 50 most recent results from PostgreSQL
+	results, err := database.GetRecentResults(50)
+	if err != nil {
+		http.Error(w, "Failed to fetch status from database", http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Convert the Go slice into JSON and send it to the user!
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	
+	// If the database is completely empty, return an empty array instead of null
+	if results == nil {
+		results = []models.PingResult{}
+	}
+	
+	json.NewEncoder(w).Encode(results)
 }
