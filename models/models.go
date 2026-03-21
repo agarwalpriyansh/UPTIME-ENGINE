@@ -4,8 +4,8 @@ import "time"
 
 // MonitorJob defines the type of check and the target URL/IP
 type MonitorJob struct {
-	Type   string // "HTTP" or "TCP"
-	Target string
+	Type   string  `json:"type"`// "HTTP" or "TCP"
+	Target string  `json:"target"`
 }
 
 // PingResult holds the outcome of a completed MonitorJob

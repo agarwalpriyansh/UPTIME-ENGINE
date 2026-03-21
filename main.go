@@ -69,6 +69,8 @@ func main() {
 	
 	http.HandleFunc("/api/monitor", server.AddMonitorHandler)
 	http.HandleFunc("/api/status", server.GetStatusHandler)
+	// Serve frontend files from the "static" folder!
+	http.Handle("/", http.FileServer(http.Dir("./static")))
 
 	fmt.Println("==================================================")
 	fmt.Println("🚀 Uptime Engine API is LIVE on http://localhost:8080")

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uptime Monitor Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans p-8">
+
+    <div class="max-w-5xl mx-auto">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-blue-400">⚡ Uptime Engine Dashboard</h1>
+            <span class="bg-blue-900 text-blue-200 py-1 px-3 rounded-full text-sm font-semibold animate-pulse" id="status-badge">
+                Live Data
+            </span>
+        </div>
+
+        <div class="bg-gray-800 rounded-lg shadow-lg overflow-hidden border border-gray-700">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-gray-700 text-gray-300 text-sm uppercase tracking-wider">
+                        <th class="p-4 border-b border-gray-600">Target URL</th>
+                        <th class="p-4 border-b border-gray-600">Protocol</th>
+                        <th class="p-4 border-b border-gray-600">Status</th>
+                        <th class="p-4 border-b border-gray-600">Latency</th>
+                        <th class="p-4 border-b border-gray-600">Last Checked</th>
+                    </tr>
+                </thead>
+                <tbody id="results-body">
+                    <tr>
+                        <td colspan="5" class="p-4 text-center text-gray-500">Loading metrics...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // This function calls our Go API and updates the table
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                const tbody = document.getElementById('results-body');
+                tbody.innerHTML = ''; // Clear old data
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-500">No data available. Send some POST requests!</td></tr>';
+                    return;
+                }
+
+                // Loop through the database results and create table rows
+                data.forEach(ping => {
+                    // Determine colors based on Up/Down status
+                    const statusColor = ping.up ? 'text-green-400 bg-green-900/30' : 'text-red-400 bg-red-900/30';
+                    const statusText = ping.up ? '🟢 UP' : '🔴 DOWN';
+                    
+                    // Format the latency (convert nanoseconds to milliseconds nicely)
+                    const latencyMs = (ping.latency / 1000000).toFixed(2);
+                    
+                    // Format the timestamp
+                    const checkTime = new Date(ping.timestamp).toLocaleTimeString();
+
+                    const row = `
+                        <tr class="border-b border-gray-700 hover:bg-gray-750 transition-colors">
+                            <td class="p-4 font-mono text-sm">${ping.job.target}</td>
+                            <td class="p-4 text-gray-400">${ping.job.type}</td>
+                            <td class="p-4">
+                                <span class="px-2 py-1 rounded text-xs font-bold ${statusColor}">
+                                    ${statusText}
+                                </span>
+                            </td>
+                            <td class="p-4 font-mono text-yellow-400">${latencyMs} ms</td>
+                            <td class="p-4 text-gray-400 text-sm">${checkTime}</td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            } catch (error) {
+                console.error("Failed to fetch status:", error);
+            }
+        }
+
+        // Fetch data immediately when the page loads
+        fetchStatus();
+
+        // Auto-refresh the dashboard every 5 seconds!
+        setInterval(fetchStatus, 5000);
+    </script>
+</body>
+</html>
