@@ -8,6 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"monitor-engine/models"
+	"os"
 
 )
 
@@ -16,10 +17,16 @@ var RedisClient *redis.Client
 
 // InitRedis connects to our Dockerized Redis instance
 func InitRedis() error {
+	// NEW: Read from environment, fallback to localhost if not found
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379" 
+	}
+
 	RedisClient = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379", // The port we exposed in docker-compose
-		Password: "",               // No password for local development
-		DB:       0,                // Default DB
+		Addr:     redisAddr,
+		Password: "",               
+		DB:       0,                
 	})
 
 	// Create a short timeout context just for the ping

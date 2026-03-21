@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"os"
 
 	_ "github.com/lib/pq" // The underscore means we import it for its side-effects (registering the driver)
 	"monitor-engine/models" // Make sure to import your models!
@@ -14,8 +15,11 @@ import (
 var DB *sql.DB
 
 func InitPostgres() error {
-	// 1. Define the connection string (matches our docker-compose settings)
-	connStr := "postgres://admin:password@localhost:5432/monitor_db?sslmode=disable"
+	// NEW: Read from environment, fallback to localhost if not found
+	connStr := os.Getenv("POSTGRES_DSN")
+	if connStr == "" {
+		connStr = "postgres://admin:password@localhost:5432/monitor_db?sslmode=disable"
+	}
 	
 	var err error
 	DB, err = sql.Open("postgres", connStr)
