@@ -52,6 +52,20 @@ func InitPostgres() error {
 		return fmt.Errorf("failed to create table: %v", err)
 	}
 
+	// Create the active_monitors table to store our targets permanently
+	createMonitorsTable := `
+	CREATE TABLE IF NOT EXISTS active_monitors (
+		id SERIAL PRIMARY KEY,
+		protocol VARCHAR(10) NOT NULL,
+		target_url VARCHAR(255) UNIQUE NOT NULL, -- UNIQUE prevents adding the same site twice!
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	_, err = DB.Exec(createMonitorsTable)
+	if err != nil {
+		return fmt.Errorf("failed to create active_monitors table: %v", err)
+	}
+
 	return nil
 }
 
@@ -104,4 +118,38 @@ func GetRecentResults(limit int) ([]models.PingResult, error) {
 	}
 
 	return results, nil
+}
+
+// GetAllTargets fetches all active URLs that we need to monitor
+func GetAllTargets() ([]models.MonitorJob, error) {
+	query := `SELECT protocol, target_url FROM active_monitors`
+	rows, err := DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var targets []models.MonitorJob
+	for rows.Next() {
+		var job models.MonitorJob
+		if err := rows.Scan(&job.Type, &job.Target); err != nil {
+			continue
+		}
+		targets = append(targets, job)
+	}
+	return targets, nil
+}
+
+// DeleteTarget removes a URL from our monitoring list
+func DeleteTarget(targetURL string) error {
+	query := `DELETE FROM active_monitors WHERE target_url = $1`
+	_, err := DB.Exec(query, targetURL)
+	return err
+}
+
+// AddTarget inserts a new URL into our monitoring list
+func AddTarget(protocol, targetURL string) error {
+    query := `INSERT INTO active_monitors (protocol, target_url) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+    _, err := DB.Exec(query, protocol, targetURL)
+    return err
 }
