@@ -28,6 +28,7 @@ func main() {
 	
 	// Start the background flusher to move data from Redis -> Postgres
 	go worker.StartFlusher()
+	
 
 	// 2. Setup the Channels
 	// We use a buffer of 5000 so the API doesn't block if we get a spike in traffic
@@ -45,6 +46,8 @@ func main() {
 	for w := 1; w <= numWorkers; w++ {
 		go worker.StartWorker(w, jobs, results)
 	}
+	// Start the Target Feeder to automatically generate jobs every 30 seconds!
+	go worker.StartTargetFeeder(jobs)
 
 	// 4. Start the Result Processor (Replaces our old for-loop)
 	// This runs infinitely in the background, saving data to Redis
