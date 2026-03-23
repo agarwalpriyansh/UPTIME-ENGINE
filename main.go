@@ -70,7 +70,16 @@ func main() {
 		JobsQueue: jobs,
 	}
 	
-	http.HandleFunc("/api/monitor", server.AddMonitorHandler)
+	http.HandleFunc("/api/monitor", func(w http.ResponseWriter, r *http.Request) {
+		// A neat Go trick to route POST and DELETE to the same base URL
+		if r.Method == http.MethodPost {
+			server.AddMonitorHandler(w, r)
+		} else if r.Method == http.MethodDelete {
+			server.DeleteMonitorHandler(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 	http.HandleFunc("/api/status", server.GetStatusHandler)
 	// Serve frontend files from the "static" folder!
 	http.Handle("/", http.FileServer(http.Dir("./static")))

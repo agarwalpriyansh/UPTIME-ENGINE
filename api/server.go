@@ -29,7 +29,12 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON payload. Require 'type' and 'target'", http.StatusBadRequest)
 		return
 	}
-
+	// Save it to PostgreSQL permanently!
+	err = database.AddTarget(job.Type, job.Target)
+	if err != nil {
+		http.Error(w, "Failed to save target to database", http.StatusInternalServerError)
+		return
+	}
 	// 3. Push the new job directly into the Worker Pool's queue!
 	// (This is exactly how a Task Queue Broker works)
 	s.JobsQueue <- job
@@ -39,6 +44,33 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": fmt.Sprintf("Successfully queued %s check for %s", job.Type, job.Target),
+	})
+}
+// DeleteMonitorHandler handles DELETE /api/monitor?url=...
+func (s *APIServer) DeleteMonitorHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract the URL from the query string (e.g., ?url=https://google.com)
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		http.Error(w, "Missing 'url' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Tell PostgreSQL to delete it
+	err := database.DeleteTarget(targetURL)
+	if err != nil {
+		http.Error(w, "Failed to delete target", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": fmt.Sprintf("Successfully deleted %s from active monitors", targetURL),
 	})
 }
 
