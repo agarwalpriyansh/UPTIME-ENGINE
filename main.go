@@ -81,6 +81,8 @@ func main() {
 		}
 	})
 	http.HandleFunc("/api/status", server.GetStatusHandler)
+	http.HandleFunc("/api/targets", server.GetTargetsHandler)
+	http.HandleFunc("/api/logs", server.GetLogsHandler)
 	// Serve frontend files from the "static" folder!
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 

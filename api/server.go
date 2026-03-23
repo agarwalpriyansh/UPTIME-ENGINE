@@ -100,3 +100,63 @@ func (s *APIServer) GetStatusHandler(w http.ResponseWriter, r *http.Request) {
 	
 	json.NewEncoder(w).Encode(results)
 }
+
+// GetTargetsHandler handles GET /api/targets — returns all active monitors
+func (s *APIServer) GetTargetsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	targets, err := database.GetAllTargets()
+	if err != nil {
+		http.Error(w, "Failed to fetch targets", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if targets == nil {
+		targets = []models.MonitorJob{}
+	}
+
+	json.NewEncoder(w).Encode(targets)
+}
+
+// GetLogsHandler handles GET /api/logs?url=...&limit=100 — returns per-site ping history
+func (s *APIServer) GetLogsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	targetURL := r.URL.Query().Get("url")
+	if targetURL == "" {
+		http.Error(w, "Missing 'url' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 100
+	if limitStr != "" {
+		if n, err := fmt.Sscanf(limitStr, "%d", &limit); n == 0 || err != nil {
+			limit = 100
+		}
+	}
+
+	results, err := database.GetLogsByTarget(targetURL, limit)
+	if err != nil {
+		http.Error(w, "Failed to fetch logs", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if results == nil {
+		results = []models.PingResult{}
+	}
+
+	json.NewEncoder(w).Encode(results)
+}

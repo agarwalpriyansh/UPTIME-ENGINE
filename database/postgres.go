@@ -153,3 +153,48 @@ func AddTarget(protocol, targetURL string) error {
     _, err := DB.Exec(query, protocol, targetURL)
     return err
 }
+
+// GetLogsByTarget fetches the ping history for a specific target URL
+func GetLogsByTarget(targetURL string, limit int) ([]models.PingResult, error) {
+	query := `
+		SELECT target_url, protocol, status_code, latency_ms, is_up, error_msg, checked_at 
+		FROM ping_results 
+		WHERE target_url = $1
+		ORDER BY checked_at DESC 
+		LIMIT $2
+	`
+	rows, err := DB.Query(query, targetURL, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query logs for %s: %v", targetURL, err)
+	}
+	defer rows.Close()
+
+	var results []models.PingResult
+	for rows.Next() {
+		var target, protocol, errMsg string
+		var statusCode int
+		var latencyMs int64
+		var isUp bool
+		var checkedAt time.Time
+
+		err := rows.Scan(&target, &protocol, &statusCode, &latencyMs, &isUp, &errMsg, &checkedAt)
+		if err != nil {
+			log.Printf("[DB ERROR] Failed to scan log row: %v\n", err)
+			continue
+		}
+
+		ping := models.PingResult{
+			Job: models.MonitorJob{
+				Type:   protocol,
+				Target: target,
+			},
+			StatusCode: statusCode,
+			Latency:    time.Duration(latencyMs) * time.Millisecond,
+			Up:         isUp,
+			ErrorMsg:   errMsg,
+			Timestamp:  checkedAt,
+		}
+		results = append(results, ping)
+	}
+	return results, nil
+}
