@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"monitor-engine/models"
 	"monitor-engine/database"
@@ -28,6 +29,20 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil || job.Target == "" || job.Type == "" {
 		http.Error(w, "Invalid JSON payload. Require 'type' and 'target'", http.StatusBadRequest)
 		return
+	}
+
+	// Normalize target and protocol
+	job.Type = strings.ToUpper(job.Type)
+	proto := ""
+	if job.Type == "HTTPS" {
+		job.Type = "HTTP"
+		proto = "https://"
+	} else if job.Type == "HTTP" {
+		proto = "http://"
+	}
+
+	if proto != "" && !strings.HasPrefix(strings.ToLower(job.Target), "http://") && !strings.HasPrefix(strings.ToLower(job.Target), "https://") {
+		job.Target = proto + job.Target
 	}
 	// Save it to PostgreSQL permanently!
 	err = database.AddTarget(job.Type, job.Target)
@@ -82,8 +97,8 @@ func (s *APIServer) GetStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Fetch the 50 most recent results from PostgreSQL
-	results, err := database.GetRecentResults(50)
+	// 2. Fetch the 500 most recent results from PostgreSQL
+	results, err := database.GetRecentResults(500)
 	if err != nil {
 		http.Error(w, "Failed to fetch status from database", http.StatusInternalServerError)
 		return

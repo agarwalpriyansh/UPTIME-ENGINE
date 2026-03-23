@@ -36,7 +36,11 @@ interface DashboardProps {
   results: PingResult[];
 }
 
-export default function Dashboard({ targets, results }: DashboardProps) {
+export default function Dashboard({ targets, results: rawResults }: DashboardProps) {
+  // Filter results to only include those for active targets
+  const activeTargetUrls = new Set(targets.map((t) => t.target));
+  const results = rawResults.filter((r) => activeTargetUrls.has(r.job.target));
+
   // Compute per-site latest status
   const siteLatest: Record<string, PingResult> = {};
   results.forEach((r) => {
@@ -181,7 +185,7 @@ export default function Dashboard({ targets, results }: DashboardProps) {
                     color: "#f1f5f9",
                     fontSize: "13px",
                   }}
-                  formatter={(value: number) => [`${value}%`, "Uptime"]}
+                  formatter={(value: any) => [`${value}%`, "Uptime"]}
                 />
                 <Bar dataKey="uptime" radius={[6, 6, 0, 0]} maxBarSize={48}>
                   {barData.map((entry, index) => (
