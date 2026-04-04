@@ -88,7 +88,7 @@ func main() {
 				lastState[target] = result.Up
 				
 				// Fire the EMAIL in the background so it doesn't block the processor!
-				go notifications.SendEmailAlert(target, result.Up)
+				go notifications.SendEmailAlert(target, result.Up, result.Job.OwnerEmail)
 			}
 		}
 	}()

@@ -8,11 +8,12 @@ import (
 )
 
 // SendEmailAlert sends an email using Google's SMTP server
-func SendEmailAlert(targetURL string, isUp bool) {
+func SendEmailAlert(targetURL string, isUp bool, toEmail string) {
+	
 	// 1. Fetch credentials from our Environment Variables
 	from := os.Getenv("SMTP_USER")     // Your Gmail address
 	password := os.Getenv("SMTP_PASS") // Your Gmail App Password
-	toEmail := os.Getenv("ALERT_EMAIL") // Where the alert should be sent
+	
 
 	if from == "" || password == "" || toEmail == "" {
 		log.Println("[ALERT ERROR] Missing SMTP credentials. Skipping email.")
