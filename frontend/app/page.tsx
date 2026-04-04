@@ -71,12 +71,12 @@ export default function Home() {
   }, []);
 
   // Add a new monitor
-  const handleAddSite = async (protocol: string, url: string) => {
+  const handleAddSite = async (protocol: string, url: string, email?: string) => {
     try {
       await fetch("/api/monitor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: protocol, target: url }),
+        body: JSON.stringify({ type: protocol, target: url, email }),
       });
       fetchTargets();
       fetchStatus();

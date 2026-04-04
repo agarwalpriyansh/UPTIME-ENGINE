@@ -22,7 +22,7 @@ interface SidebarProps {
   selectedSite: string | null;
   siteStatuses: Record<string, boolean>;
   onSelectSite: (target: string | null) => void;
-  onAddSite: (protocol: string, url: string) => void;
+  onAddSite: (protocol: string, url: string, email?: string) => void;
   onDeleteSite: (url: string) => void;
 }
 
@@ -36,6 +36,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [newUrl, setNewUrl] = useState("");
   const [newProtocol, setNewProtocol] = useState("https");
+  const [newEmail, setNewEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -43,8 +44,9 @@ export default function Sidebar({
     e.preventDefault();
     if (!newUrl.trim()) return;
     setIsSubmitting(true);
-    await onAddSite(newProtocol, newUrl.trim());
+    await onAddSite(newProtocol, newUrl.trim(), newEmail.trim() || undefined);
     setNewUrl("");
+    setNewEmail("");
     setIsSubmitting(false);
   };
 
@@ -136,6 +138,15 @@ export default function Sidebar({
               placeholder="google.com"
               className="flex-1 bg-gray-900/80 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-indigo-500/50 transition-colors placeholder:text-gray-600"
               required
+            />
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder="alert@example.com (optional)"
+              className="flex-1 bg-gray-900/80 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-indigo-500/50 transition-colors placeholder:text-gray-600"
             />
           </div>
           <button
