@@ -6,6 +6,7 @@ import "time"
 type MonitorJob struct {
 	Type   string  `json:"type"`// "HTTP" or "TCP"
 	Target string  `json:"target"`
+	OwnerEmail string `json:"owner_email"`
 }
 
 // PingResult holds the outcome of a completed MonitorJob
