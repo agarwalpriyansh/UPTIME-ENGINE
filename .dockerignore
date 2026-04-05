@@ -1,0 +1,8 @@
+# Ignore frontend files for the Go build
+frontend/
+node_modules/
+.next/
+
+# Ignore git and compiled binaries
+.git/
+*.exe
