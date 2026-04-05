@@ -12,6 +12,8 @@ services:
       - REDIS_ADDR=redis:6379
       - POSTGRES_DSN=postgres://admin:password@postgres:5432/monitor_db?sslmode=disable
       - WORKER_COUNT=25
+      - SMTP_USER=priyanshagarwal05@gmail.com    # Keep your Gmail here
+      - SMTP_PASS=vloxblqqibwxpopb     # Keep your 16-letter App Password here
     depends_on:
       - redis
       - postgres
