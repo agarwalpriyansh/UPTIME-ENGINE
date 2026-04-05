@@ -108,6 +108,7 @@ export default function Sidebar({
           <button
             onClick={() => setCollapsed(true)}
             className="p-1.5 rounded-lg hover:bg-gray-800 transition-colors text-gray-500 hover:text-gray-300"
+            suppressHydrationWarning
           >
             <X className="w-4 h-4" />
           </button>
@@ -126,6 +127,7 @@ export default function Sidebar({
               value={newProtocol}
               onChange={(e) => setNewProtocol(e.target.value)}
               className="bg-gray-900/80 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-2 outline-none focus:border-indigo-500/50 transition-colors w-24 cursor-pointer"
+              suppressHydrationWarning
             >
               <option value="https">HTTPS</option>
               <option value="http">HTTP</option>
@@ -138,6 +140,7 @@ export default function Sidebar({
               placeholder="google.com"
               className="flex-1 bg-gray-900/80 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-indigo-500/50 transition-colors placeholder:text-gray-600"
               required
+              suppressHydrationWarning
             />
           </div>
           <div className="flex gap-2">
@@ -147,12 +150,14 @@ export default function Sidebar({
               onChange={(e) => setNewEmail(e.target.value)}
               placeholder="alert@example.com (optional)"
               className="flex-1 bg-gray-900/80 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-indigo-500/50 transition-colors placeholder:text-gray-600"
+              suppressHydrationWarning
             />
           </div>
           <button
             type="submit"
             disabled={isSubmitting}
             className="w-full flex items-center justify-center gap-2 text-white bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:cursor-not-allowed rounded-lg text-sm px-4 py-2 transition-all font-medium"
+            suppressHydrationWarning
           >
             <Plus className="w-3.5 h-3.5" />
             {isSubmitting ? "Adding..." : "Add Monitor"}
