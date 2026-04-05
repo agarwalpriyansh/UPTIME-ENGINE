@@ -9,11 +9,11 @@ services:
       - "8080:8080"
     environment:
       # Here we tell Go the EXACT names of the other containers!
-      - REDIS_ADDR=redis:6379
-      - POSTGRES_DSN=postgres://admin:password@postgres:5432/monitor_db?sslmode=disable
-      - WORKER_COUNT=25
-      - SMTP_USER=priyanshagarwal05@gmail.com    # Keep your Gmail here
-      - SMTP_PASS=vloxblqqibwxpopb     # Keep your 16-letter App Password here
+      - REDIS_ADDR=${REDIS_ADDR}
+      - POSTGRES_DSN=${POSTGRES_DSN}
+      - WORKER_COUNT=${WORKER_COUNT}
+      - SMTP_USER=${SMTP_USER}    # Keep your Gmail here
+      - SMTP_PASS=${SMTP_PASS}     # Keep your 16-letter App Password here
     depends_on:
       - redis
       - postgres
@@ -32,9 +32,9 @@ services:
     image: postgres:15-alpine
     container_name: uptime-postgres
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: monitor_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     restart: always
