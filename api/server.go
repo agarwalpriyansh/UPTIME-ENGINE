@@ -30,8 +30,6 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON payload. Require 'type' and 'target'", http.StatusBadRequest)
 		return
 	}
-	// Pass the OwnerEmail to the database
-	err = database.AddTarget(job.Type, job.Target, job.OwnerEmail)
 
 	// Normalize target and protocol
 	job.Type = strings.ToUpper(job.Type)
@@ -46,6 +44,7 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 	if proto != "" && !strings.HasPrefix(strings.ToLower(job.Target), "http://") && !strings.HasPrefix(strings.ToLower(job.Target), "https://") {
 		job.Target = proto + job.Target
 	}
+
 	// Save it to PostgreSQL permanently!
 	err = database.AddTarget(job.Type, job.Target, job.OwnerEmail)
 	if err != nil {

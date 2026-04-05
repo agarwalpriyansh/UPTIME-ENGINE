@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 	"os"
+	"strings"
 
 	_ "github.com/lib/pq" // The underscore means we import it for its side-effects (registering the driver)
 	"monitor-engine/models" // Make sure to import your models!
@@ -144,15 +145,31 @@ func GetAllTargets() ([]models.MonitorJob, error) {
 
 // DeleteTarget removes a URL from our monitoring list
 func DeleteTarget(targetURL string) error {
+	var cleanTarget = targetURL
+	var cleanTargetHttp = targetURL
+	var cleanTargetHttps = targetURL
+
+	// Generate variants to ensure all historical data is cleaned up
+	if !strings.HasPrefix(targetURL, "http://") && !strings.HasPrefix(targetURL, "https://") {
+		cleanTargetHttp = "http://" + targetURL
+		cleanTargetHttps = "https://" + targetURL
+	} else if strings.HasPrefix(targetURL, "http://") {
+		cleanTarget = strings.TrimPrefix(targetURL, "http://")
+		cleanTargetHttps = "https://" + cleanTarget
+	} else if strings.HasPrefix(targetURL, "https://") {
+		cleanTarget = strings.TrimPrefix(targetURL, "https://")
+		cleanTargetHttp = "http://" + cleanTarget
+	}
+
 	// First, scrub all historical data for this target from ping_results
-	_, err := DB.Exec(`DELETE FROM ping_results WHERE target_url = $1`, targetURL)
+	_, err := DB.Exec(`DELETE FROM ping_results WHERE target_url IN ($1, $2, $3)`, cleanTarget, cleanTargetHttp, cleanTargetHttps)
 	if err != nil {
 		return fmt.Errorf("failed to delete historical ping results: %v", err)
 	}
 
 	// Then, delete the target from active_monitors
-	query := `DELETE FROM active_monitors WHERE target_url = $1`
-	_, err = DB.Exec(query, targetURL)
+	query := `DELETE FROM active_monitors WHERE target_url IN ($1, $2, $3)`
+	_, err = DB.Exec(query, cleanTarget, cleanTargetHttp, cleanTargetHttps)
 	return err
 }
 
