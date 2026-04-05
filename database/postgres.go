@@ -144,8 +144,15 @@ func GetAllTargets() ([]models.MonitorJob, error) {
 
 // DeleteTarget removes a URL from our monitoring list
 func DeleteTarget(targetURL string) error {
+	// First, scrub all historical data for this target from ping_results
+	_, err := DB.Exec(`DELETE FROM ping_results WHERE target_url = $1`, targetURL)
+	if err != nil {
+		return fmt.Errorf("failed to delete historical ping results: %v", err)
+	}
+
+	// Then, delete the target from active_monitors
 	query := `DELETE FROM active_monitors WHERE target_url = $1`
-	_, err := DB.Exec(query, targetURL)
+	_, err = DB.Exec(query, targetURL)
 	return err
 }
 

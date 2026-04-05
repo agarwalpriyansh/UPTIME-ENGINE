@@ -78,8 +78,14 @@ func main() {
 			prevState, exists := lastState[target]
 
 			if !exists {
-				// First time we are checking this site. Record it, but don't alert.
+				// First time we are checking this site. Record it.
 				lastState[target] = result.Up
+				
+				// IF the site is broken on its very first check, send an alert immediately!
+				if !result.Up {
+					fmt.Printf("[ALERT Triggered] %s is down on initial check!\n", target)
+					go notifications.SendEmailAlert(target, result.Up, result.Job.OwnerEmail)
+				}
 			} else if prevState != result.Up {
 				// STATE CHANGED! (e.g., UP flipped to DOWN)
 				fmt.Printf("[ALERT Triggered] %s state changed from %v to %v!\n", target, prevState, result.Up)
