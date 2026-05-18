@@ -8,7 +8,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the code (including the static folder)
+# Copy the rest of the source code
 COPY . .
 
 # Build a super-optimized executable file named "engine"
@@ -19,9 +19,8 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Copy the compiled executable and the static HTML folder from the builder stage
+# Copy the compiled API binary (UI is served separately by the Next.js frontend)
 COPY --from=builder /app/engine .
-COPY --from=builder /app/static ./static
 
 # Expose the API port
 EXPOSE 8080
