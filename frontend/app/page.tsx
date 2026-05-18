@@ -4,20 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import SiteDetail from "./components/SiteDetail";
-
-interface MonitorJob {
-  type: string;
-  target: string;
-}
-
-interface PingResult {
-  job: MonitorJob;
-  status_code: number;
-  latency: number;
-  up: boolean;
-  error_msg?: string;
-  timestamp: string;
-}
+import type { MonitorJob, PingResult } from "./types";
 
 export default function Home() {
   const [targets, setTargets] = useState<MonitorJob[]>([]);
@@ -76,7 +63,11 @@ export default function Home() {
       await fetch("/api/monitor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: protocol, target: url, email }),
+        body: JSON.stringify({
+          type: protocol,
+          target: url,
+          owner_email: email ?? "",
+        }),
       });
       fetchTargets();
       fetchStatus();

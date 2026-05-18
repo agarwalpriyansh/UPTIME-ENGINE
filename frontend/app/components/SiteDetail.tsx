@@ -21,20 +21,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-
-interface MonitorJob {
-  type: string;
-  target: string;
-}
-
-interface PingResult {
-  job: MonitorJob;
-  status_code: number;
-  latency: number;
-  up: boolean;
-  error_msg?: string;
-  timestamp: string;
-}
+import type { PingResult } from "../types";
 
 interface SiteDetailProps {
   target: string;
@@ -55,7 +42,7 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
   // Average latency
   const avgLatency =
     totalChecks > 0
-      ? logs.reduce((sum, l) => sum + l.latency / 1_000_000, 0) / totalChecks
+      ? logs.reduce((sum, l) => sum + l.latency_ms, 0) / totalChecks
       : 0;
 
   // Latency chart data (reversed so oldest is left)
@@ -66,7 +53,7 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
         hour: "2-digit",
         minute: "2-digit",
       }),
-      latency: parseFloat((l.latency / 1_000_000).toFixed(2)),
+      latency: parseFloat(l.latency_ms.toFixed(2)),
       up: l.up,
     }));
 
@@ -382,7 +369,7 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
                     </td>
                     <td className="px-6 py-2.5">
                       <span className="font-mono text-sm text-amber-300/90">
-                        {(log.latency / 1_000_000).toFixed(2)} ms
+                        {log.latency_ms.toFixed(2)} ms
                       </span>
                     </td>
 

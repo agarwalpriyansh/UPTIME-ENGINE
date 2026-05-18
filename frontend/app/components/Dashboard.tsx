@@ -17,19 +17,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-
-interface MonitorJob {
-  type: string;
-  target: string;
-}
-
-interface PingResult {
-  job: MonitorJob;
-  status_code: number;
-  latency: number;
-  up: boolean;
-  timestamp: string;
-}
+import type { MonitorJob, PingResult } from "../types";
 
 interface DashboardProps {
   targets: MonitorJob[];
@@ -54,8 +42,7 @@ export default function Dashboard({ targets, results: rawResults }: DashboardPro
   const sitesDown = Object.values(siteLatest).filter((r) => !r.up).length;
   const avgLatency =
     results.length > 0
-      ? results.reduce((sum, r) => sum + r.latency / 1_000_000, 0) /
-        results.length
+      ? results.reduce((sum, r) => sum + r.latency_ms, 0) / results.length
       : 0;
 
   // Bar chart data: per-site UP count vs TOTAL count
@@ -271,7 +258,7 @@ export default function Dashboard({ targets, results: rawResults }: DashboardPro
                     </td>
                     <td className="px-6 py-3">
                       <span className="font-mono text-sm text-amber-300/90">
-                        {(ping.latency / 1_000_000).toFixed(2)} ms
+                        {ping.latency_ms.toFixed(2)} ms
                       </span>
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-500">
