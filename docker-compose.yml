@@ -1,33 +1,37 @@
-version: '3.8'
-
 services:
-  # 1. Our custom Go Application
+  # Go uptime engine: REST API, worker pool, Redis buffer flush, and email alerts.
+  # Loads app config from .env (REDIS_ADDR, POSTGRES_DSN, WORKER_COUNT, SMTP_*).
   api:
     build: .
     container_name: uptime-api
+    env_file:
+      - .env
     ports:
-      - "8080:8080"
-    environment:
-      # Here we tell Go the EXACT names of the other containers!
-      - REDIS_ADDR=${REDIS_ADDR}
-      - POSTGRES_DSN=${POSTGRES_DSN}
-      - WORKER_COUNT=${WORKER_COUNT}
-      - SMTP_USER=${SMTP_USER}    # Keep your Gmail here
-      - SMTP_PASS=${SMTP_PASS}     # Keep your 16-letter App Password here
+      # Localhost only — not exposed on your LAN
+      - "127.0.0.1:8080:8080"
     depends_on:
-      - redis
-      - postgres
-    restart: always
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
-  # 2. Redis Buffer
+  # Fast write buffer between workers and Postgres (list key: ping_buffer).
   redis:
-    image: redis:alpine
+    image: redis:7.4-alpine
     container_name: uptime-redis
     ports:
-      - "6379:6379"
-    restart: always
+      # Optional: redis-cli from the host. Containers reach Redis at redis:6379
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
 
-  # 3. Permanent Storage
+  # Permanent storage for active_monitors and ping_results.
   postgres:
     image: postgres:15-alpine
     container_name: uptime-postgres
@@ -36,5 +40,17 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
-    restart: always
+      # Optional: pgAdmin/DBeaver from the host. Containers reach Postgres at postgres:5432
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,3 +1,5 @@
 # .gitignore
 .env
 bin/
+*.pem
+uptime-key.pem
