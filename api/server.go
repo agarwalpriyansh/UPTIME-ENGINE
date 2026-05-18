@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"monitor-engine/models"
 	"monitor-engine/database"
@@ -23,30 +22,21 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Parse the JSON body sent by the user
+	// 2. Parse and validate the JSON body
 	var job models.MonitorJob
 	err := json.NewDecoder(r.Body).Decode(&job)
-	if err != nil || job.Target == "" || job.Type == "" {
-		http.Error(w, "Invalid JSON payload. Require 'type' and 'target'", http.StatusBadRequest)
+	if err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
-
-	// Normalize target and protocol
-	job.Type = strings.ToUpper(job.Type)
-	proto := ""
-	if job.Type == "HTTPS" {
-		job.Type = "HTTP"
-		proto = "https://"
-	} else if job.Type == "HTTP" {
-		proto = "http://"
+	if err := job.Valid(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-
-	if proto != "" && !strings.HasPrefix(strings.ToLower(job.Target), "http://") && !strings.HasPrefix(strings.ToLower(job.Target), "https://") {
-		job.Target = proto + job.Target
-	}
+	job.Normalize()
 
 	// Save it to PostgreSQL permanently!
-	err = database.AddTarget(job.Type, job.Target, job.OwnerEmail)
+	err = database.AddTarget(string(job.Type), job.Target, job.OwnerEmail)
 	if err != nil {
 		http.Error(w, "Failed to save target to database", http.StatusInternalServerError)
 		return

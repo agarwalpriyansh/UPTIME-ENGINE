@@ -106,7 +106,7 @@ func GetRecentResults(limit int) ([]models.PingResult, error) {
 		// 4. Reconstruct our PingResult struct
 		ping := models.PingResult{
 			Job: models.MonitorJob{
-				Type:   protocol,
+				Type:   models.Protocol(protocol),
 				Target: target,
 			},
 			StatusCode: statusCode,
@@ -212,7 +212,7 @@ func GetLogsByTarget(targetURL string, limit int) ([]models.PingResult, error) {
 
 		ping := models.PingResult{
 			Job: models.MonitorJob{
-				Type:   protocol,
+				Type:   models.Protocol(protocol),
 				Target: target,
 			},
 			StatusCode: statusCode,

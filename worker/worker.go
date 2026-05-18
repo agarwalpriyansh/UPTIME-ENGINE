@@ -14,7 +14,7 @@ import (
 func StartWorker(id int, jobs <-chan models.MonitorJob, results chan<- models.PingResult) {
 	for job := range jobs {
 		
-		if job.Type == "HTTP" {
+		if job.Type == models.ProtocolHTTP {
 			startTime := time.Now()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
@@ -38,7 +38,7 @@ func StartWorker(id int, jobs <-chan models.MonitorJob, results chan<- models.Pi
 			resp.Body.Close()
 			cancel()
 
-		} else if job.Type == "TCP" {
+		} else if job.Type == models.ProtocolTCP {
 			startTime := time.Now()
 			conn, err := net.DialTimeout("tcp", job.Target, 5*time.Second)
 			latency := time.Since(startTime)
