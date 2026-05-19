@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"monitor-engine/metrics"
 	"monitor-engine/models"
 )
 
@@ -32,18 +33,21 @@ var httpCheckClient = &http.Client{
 // StartWorker pulls jobs from the channel and executes the correct protocol check.
 func StartWorker(id int, jobs <-chan models.MonitorJob, results chan<- models.PingResult) {
 	for job := range jobs {
+		var result models.PingResult
 		switch job.Type {
 		case models.ProtocolHTTP:
-			results <- httpCheck(id, job)
+			result = httpCheck(id, job)
 		case models.ProtocolTCP:
-			results <- tcpCheck(id, job)
+			result = tcpCheck(id, job)
 		default:
-			results <- models.PingResult{
+			result = models.PingResult{
 				Job:      job,
 				Up:       false,
 				ErrorMsg: fmt.Sprintf("unknown protocol: %q", job.Type),
 			}
 		}
+		metrics.RecordCheck(string(job.Type), result.Up, result.Latency)
+		results <- result
 	}
 }
 

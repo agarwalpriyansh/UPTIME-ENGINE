@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"monitor-engine/database"
+	"monitor-engine/metrics"
 	"monitor-engine/models"
 )
 
@@ -36,6 +37,7 @@ func feedTargetsOnce(jobsQueue chan<- models.MonitorJob) {
 	}
 
 	log.Printf("[FEEDER] Feeding %d targets to the worker pool\n", len(targets))
+	metrics.RecordFeederRun(len(targets))
 	for _, target := range targets {
 		jobsQueue <- target
 	}

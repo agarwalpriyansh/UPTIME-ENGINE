@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"monitor-engine/api"
 	"monitor-engine/database"
+	"monitor-engine/metrics"
 	"monitor-engine/models"
 	"monitor-engine/notifications"
 	"monitor-engine/worker"
@@ -27,9 +29,13 @@ func main() {
 
 	go worker.StartFlusher()
 	go worker.StartRetentionCleaner()
+	go metrics.StartCollector()
 
 	jobs := make(chan models.MonitorJob, 5000)
 	results := make(chan models.PingResult, 5000)
+
+	metrics.SetJobsQueueDepthFunc(func() int { return len(jobs) })
+	metrics.SetResultsQueueDepthFunc(func() int { return len(results) })
 
 	numWorkers := parseWorkerCount()
 	log.Printf("Starting %d workers\n", numWorkers)
@@ -48,6 +54,7 @@ func main() {
 			}
 			if err := database.SaveResult(result); err != nil {
 				log.Printf("[DB ERROR] %v\n", err)
+				metrics.RecordRedisPushError()
 			} else {
 				status := "UP"
 				if !result.Up {
@@ -91,6 +98,7 @@ func main() {
 	http.HandleFunc("/api/status", server.GetStatusHandler)
 	http.HandleFunc("/api/targets", server.GetTargetsHandler)
 	http.HandleFunc("/api/logs", server.GetLogsHandler)
+	http.Handle("/metrics", promhttp.Handler())
 
 	addr := getenvDefault("LISTEN_ADDR", ":8080")
 	srv := &http.Server{

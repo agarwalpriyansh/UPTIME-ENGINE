@@ -6,6 +6,8 @@ import (
 	"net/smtp"
 	"os"
 	"strings"
+
+	"monitor-engine/metrics"
 )
 
 // SendEmailAlert sends a plaintext alert via SMTP (defaults to Gmail on port 587).
@@ -49,8 +51,14 @@ func SendEmailAlert(targetURL string, isUp bool, toEmail string) {
 	auth := smtp.PlainAuth("", from, password, host)
 	if err := smtp.SendMail(addr, auth, from, []string{toEmail}, []byte(msg)); err != nil {
 		log.Printf("[ALERT] send failed to %s: %v", toEmail, err)
+		metrics.RecordAlertFailed()
 		return
 	}
+	kind := "down"
+	if isUp {
+		kind = "recovery"
+	}
+	metrics.RecordAlertSent(kind)
 	log.Printf("[ALERT] email sent to %s (%s)", toEmail, subj)
 }
 

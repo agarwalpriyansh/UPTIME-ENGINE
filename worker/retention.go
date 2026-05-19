@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"monitor-engine/database"
+	"monitor-engine/metrics"
 )
 
 // retentionDays is how long ping_results are kept (default 30). Set PING_RETENTION_DAYS; use 0 to disable.
@@ -46,6 +47,7 @@ func pruneOldPingsOnce(days int) {
 		log.Printf("[RETENTION ERROR] Failed to delete old pings: %v\n", err)
 		return
 	}
+	metrics.RecordRetentionDeleted(deleted)
 	if deleted > 0 {
 		log.Printf("[RETENTION] Deleted %d ping_results older than %d days (before %s)\n",
 			deleted, days, cutoff.Format(time.RFC3339))

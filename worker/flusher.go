@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"monitor-engine/database"
+	"monitor-engine/metrics"
 	"monitor-engine/models"
 )
 
@@ -58,6 +59,7 @@ func flushToPostgres(ctx context.Context) {
 	results, err := database.RedisClient.LPopCount(ctx, database.PingBufferKey, 1000).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
 		log.Printf("[FLUSHER ERROR] Failed to read from Redis: %v\n", err)
+		metrics.RecordFlushError()
 		return
 	}
 	if len(results) == 0 {
@@ -69,6 +71,7 @@ func flushToPostgres(ctx context.Context) {
 	tx, err := database.DB.BeginTx(ctx, nil)
 	if err != nil {
 		log.Printf("[FLUSHER ERROR] Failed to start DB transaction: %v\n", err)
+		metrics.RecordFlushError()
 		requeuePingBatch(ctx, results)
 		return
 	}
@@ -80,6 +83,7 @@ func flushToPostgres(ctx context.Context) {
 	`)
 	if err != nil {
 		log.Printf("[FLUSHER ERROR] Failed to prepare SQL: %v\n", err)
+		metrics.RecordFlushError()
 		requeuePingBatch(ctx, results)
 		return
 	}
@@ -102,6 +106,7 @@ func flushToPostgres(ctx context.Context) {
 			ping.Timestamp,
 		); err != nil {
 			log.Printf("[FLUSHER ERROR] Failed to execute insert: %v\n", err)
+			metrics.RecordFlushError()
 			requeuePingBatch(ctx, results)
 			return
 		}
@@ -109,9 +114,11 @@ func flushToPostgres(ctx context.Context) {
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("[FLUSHER ERROR] Failed to commit transaction: %v\n", err)
+		metrics.RecordFlushError()
 		requeuePingBatch(ctx, results)
 		return
 	}
 
+	metrics.RecordFlushRows(len(results))
 	log.Printf("[FLUSHER] Successfully saved %d records.\n", len(results))
 }

@@ -20,6 +20,27 @@ The architecture leverages a Go-based backend for high-throughput concurrent pro
 * **Database:** PostgreSQL
 * **Message Broker:** Redis
 * **Deployment:** Docker, Docker Compose, AWS EC2
+* **Observability:** Prometheus (scrapes Go `/metrics`), Grafana (pre-built engine dashboard)
+
+## Prometheus & Grafana
+
+The Go API exposes Prometheus metrics at `GET /metrics` (engine health: check rates, latency, queue depth, Redis buffer, flush/alert counters). Per-site history remains in Postgres and the Next.js UI.
+
+**Start the stack (includes Prometheus + Grafana):**
+
+```bash
+docker compose up -d --build
+```
+
+| Service    | URL                         |
+|------------|-----------------------------|
+| API        | http://127.0.0.1:8080       |
+| Prometheus | http://127.0.0.1:9090       |
+| Grafana    | http://127.0.0.1:3001       |
+
+Grafana login: `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `.env` (defaults `admin` / `admin`). Open dashboard **Uptime Engine** under folder **Uptime Monitor**.
+
+Optional: `METRICS_COLLECT_INTERVAL_SEC` (default `15`) controls how often gauges (Redis buffer, active monitors) refresh.
 
 ## Project Structure
 
@@ -31,6 +52,9 @@ uptime-engine/
 ├── models/               # Shared Go structs and data definitions
 ├── notifications/        # SMTP email alerting system
 ├── worker/               # Goroutine worker pool, HTTP ping logic, and Redis queuing
+├── metrics/              # Prometheus metrics and periodic gauge collector
+├── prometheus/           # Prometheus scrape config
+├── grafana/              # Grafana datasource + dashboard provisioning
 ├── main.go               # Application entry point and state machine processor
 ├── docker-compose.yml    # Multi-container orchestration
 └── .dockerignore         # Build optimization rules
