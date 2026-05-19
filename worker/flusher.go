@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -14,78 +15,103 @@ import (
 	"monitor-engine/models"
 )
 
-// StartFlusher runs infinitely in the background
+// flushTickInterval is how often we try to drain Redis (default 10s). Set FLUSH_INTERVAL_SEC.
+func flushTickInterval() time.Duration {
+	s := os.Getenv("FLUSH_INTERVAL_SEC")
+	if s == "" {
+		return 10 * time.Second
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 10 * time.Second
+	}
+	return time.Duration(n) * time.Second
+}
+
+// requeuePingBatch pushes popped JSON strings back onto the head of ping_buffer (reverse order preserves FIFO).
+func requeuePingBatch(ctx context.Context, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	pipe := database.RedisClient.Pipeline()
+	for i := len(items) - 1; i >= 0; i-- {
+		pipe.LPush(ctx, database.PingBufferKey, items[i])
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("[FLUSHER ERROR] failed to re-queue %d pings to Redis: %v", len(items), err)
+	}
+}
+
+// StartFlusher periodically moves batches from Redis into Postgres.
 func StartFlusher() {
-	// Wake up every 10 seconds
-	ticker := time.NewTicker(10 * time.Second)
-	ctx := context.Background()
+	ticker := time.NewTicker(flushTickInterval())
+	defer ticker.Stop()
 
 	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		flushToPostgres(ctx)
+		cancel()
 	}
 }
 
 func flushToPostgres(ctx context.Context) {
-	// 1. Atomically pop up to 1000 items from the Redis list
-	// LPopCount is perfect because it reads and deletes the data from Redis in one atomic move!
 	results, err := database.RedisClient.LPopCount(ctx, database.PingBufferKey, 1000).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
 		log.Printf("[FLUSHER ERROR] Failed to read from Redis: %v\n", err)
 		return
 	}
-
 	if len(results) == 0 {
-		return // Nothing to flush right now
-	}
-
-	fmt.Printf("[FLUSHER] Scooped %d records from Redis. Writing to PostgreSQL...\n", len(results))
-
-	// 2. Prepare our SQL Bulk Insert statement
-	// Using a transaction ensures that if one insert fails, they all roll back safely.
-	tx, err := database.DB.Begin()
-	if err != nil {
-		log.Printf("[FLUSHER ERROR] Failed to start DB transaction: %v\n", err)
 		return
 	}
 
-	stmt, err := tx.Prepare(`
+	log.Printf("[FLUSHER] Scooped %d records from Redis, writing to PostgreSQL...\n", len(results))
+
+	tx, err := database.DB.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("[FLUSHER ERROR] Failed to start DB transaction: %v\n", err)
+		requeuePingBatch(ctx, results)
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO ping_results (target_url, protocol, status_code, latency_ms, is_up, error_msg, checked_at) 
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`)
 	if err != nil {
 		log.Printf("[FLUSHER ERROR] Failed to prepare SQL: %v\n", err)
+		requeuePingBatch(ctx, results)
 		return
 	}
 	defer stmt.Close()
 
-	// 3. Loop through the JSON strings we got from Redis, parse them, and insert them
 	for _, jsonStr := range results {
 		var ping models.PingResult
-		err := json.Unmarshal([]byte(jsonStr), &ping)
-		if err != nil {
+		if err := json.Unmarshal([]byte(jsonStr), &ping); err != nil {
 			log.Printf("[FLUSHER ERROR] Failed to parse JSON: %v\n", err)
 			continue
 		}
 
-		_, err = stmt.Exec(
-			ping.Job.Target, 
-			ping.Job.Type, 
-			ping.StatusCode, 
-			ping.Latency.Milliseconds(), 
-			ping.Up, 
-			ping.ErrorMsg, 
+		if _, err := stmt.ExecContext(ctx,
+			ping.Job.Target,
+			string(ping.Job.Type),
+			ping.StatusCode,
+			ping.Latency.Milliseconds(),
+			ping.Up,
+			ping.ErrorMsg,
 			ping.Timestamp,
-		)
-		if err != nil {
+		); err != nil {
 			log.Printf("[FLUSHER ERROR] Failed to execute insert: %v\n", err)
+			requeuePingBatch(ctx, results)
+			return
 		}
 	}
 
-	// 4. Commit the transaction to save the data permanently!
-	err = tx.Commit()
-	if err != nil {
+	if err := tx.Commit(); err != nil {
 		log.Printf("[FLUSHER ERROR] Failed to commit transaction: %v\n", err)
-	} else {
-		fmt.Printf("[FLUSHER] Successfully saved %d records to disk.\n", len(results))
+		requeuePingBatch(ctx, results)
+		return
 	}
+
+	log.Printf("[FLUSHER] Successfully saved %d records.\n", len(results))
 }

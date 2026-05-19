@@ -5,47 +5,58 @@ import (
 	"log"
 	"net/smtp"
 	"os"
+	"strings"
 )
 
-// SendEmailAlert sends an email using Google's SMTP server
+// SendEmailAlert sends a plaintext alert via SMTP (defaults to Gmail on port 587).
+// Configure with SMTP_USER, SMTP_PASS, and optional SMTP_HOST / SMTP_PORT.
 func SendEmailAlert(targetURL string, isUp bool, toEmail string) {
-	
-	// 1. Fetch credentials from our Environment Variables
-	from := os.Getenv("SMTP_USER")     // Your Gmail address
-	password := os.Getenv("SMTP_PASS") // Your Gmail App Password
-	
-
+	from := os.Getenv("SMTP_USER")
+	password := os.Getenv("SMTP_PASS")
 	if from == "" || password == "" || toEmail == "" {
-		log.Println("[ALERT ERROR] Missing SMTP credentials. Skipping email.")
+		log.Println("[ALERT] skipping email: missing SMTP_USER, SMTP_PASS, or recipient")
 		return
 	}
 
-	// 2. Configure the Gmail SMTP server
-	smtpHost := "smtp.gmail.com"
-	smtpPort := "587"
+	host := getenvDefault("SMTP_HOST", "smtp.gmail.com")
+	port := getenvDefault("SMTP_PORT", "587")
+	addr := host + ":" + port
 
-	// 3. Build the Email Subject and Body
-	var subject, body string
+	// Avoid header injection if target ever contained CR/LF.
+	safeURL := strings.NewReplacer("\r", "", "\n", "").Replace(targetURL)
+
+	var subj, body string
 	if isUp {
-		subject = "Subject: 🟢 RECOVERY: " + targetURL + " is BACK ONLINE\r\n"
-		body = fmt.Sprintf("Good news! Your monitor for %s is responding successfully again.", targetURL)
+		subj = "RECOVERY: " + safeURL + " is back online"
+		body = fmt.Sprintf("Your monitor reports %s is responding again.\r\n", safeURL)
 	} else {
-		subject = "Subject: 🔴 CRITICAL: " + targetURL + " is DOWN\r\n"
-		body = fmt.Sprintf("Alert! Your monitor for %s has stopped responding. Please check your servers immediately.", targetURL)
+		subj = "DOWN: " + safeURL + " is not responding"
+		body = fmt.Sprintf(
+			"Your monitor reports %s is down or not returning a successful HTTP status.\r\nPlease check the service.\r\n",
+			safeURL,
+		)
 	}
 
-	// Combine them into the format SMTP requires
-	message := []byte(subject + "\r\n" + body)
+	// RFC 5322-style message: headers, blank line, body (CRLF throughout).
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
+		from,
+		toEmail,
+		subj,
+		body,
+	)
 
-	// 4. Authenticate with Google
-	auth := smtp.PlainAuth("", from, password, smtpHost)
-
-	// 5. Send the Email
-	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, []string{toEmail}, message)
-	if err != nil {
-		log.Printf("[ALERT ERROR] Failed to send email: %v\n", err)
+	auth := smtp.PlainAuth("", from, password, host)
+	if err := smtp.SendMail(addr, auth, from, []string{toEmail}, []byte(msg)); err != nil {
+		log.Printf("[ALERT] send failed to %s: %v", toEmail, err)
 		return
 	}
-	
-	log.Printf("Email alert successfully sent to %s!\n", toEmail)
+	log.Printf("[ALERT] email sent to %s (%s)", toEmail, subj)
+}
+
+func getenvDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
