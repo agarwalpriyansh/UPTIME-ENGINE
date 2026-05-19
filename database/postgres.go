@@ -1,45 +1,58 @@
-// Create the connection logic and automatically create our database table if it doesn't exist.
+// Package database opens PostgreSQL, creates tables, and exposes query helpers.
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
-	"time"
 	"os"
 	"strings"
+	"time"
 
-	_ "github.com/lib/pq" // The underscore means we import it for its side-effects (registering the driver)
-	"monitor-engine/models" // Make sure to import your models!
+	_ "github.com/lib/pq"
+	"monitor-engine/models"
 )
 
 var DB *sql.DB
 
+const (
+	maxOpenConns    = 25
+	maxIdleConns    = 5
+	connMaxLifetime = 5 * time.Minute
+	initPingTimeout = 5 * time.Second
+)
+
+// InitPostgres connects to Postgres, configures the pool, creates tables if needed,
+// and best-effort widens legacy VARCHAR target_url columns to TEXT.
 func InitPostgres() error {
-	// NEW: Read from environment, fallback to localhost if not found
 	connStr := os.Getenv("POSTGRES_DSN")
 	if connStr == "" {
 		connStr = "postgres://admin:password@localhost:5432/monitor_db?sslmode=disable"
 	}
-	
+
 	var err error
 	DB, err = sql.Open("postgres", connStr)
 	if err != nil {
-		return fmt.Errorf("failed to open postgres: %v", err)
+		return fmt.Errorf("failed to open postgres: %w", err)
 	}
 
-	// 2. Ping to ensure the connection is actually alive
-	if err = DB.Ping(); err != nil {
-		return fmt.Errorf("failed to ping postgres: %v", err)
+	DB.SetMaxOpenConns(maxOpenConns)
+	DB.SetMaxIdleConns(maxIdleConns)
+	DB.SetConnMaxLifetime(connMaxLifetime)
+
+	ctx, cancel := context.WithTimeout(context.Background(), initPingTimeout)
+	defer cancel()
+	if err = DB.PingContext(ctx); err != nil {
+		return fmt.Errorf("failed to ping postgres: %w", err)
 	}
 
-	fmt.Println("[DATABASES] Successfully connected to PostgreSQL!")
+	log.Println("[DATABASES] Successfully connected to PostgreSQL!")
 
-	// 3. Automatically create our table if it doesn't exist
 	createTableQuery := `
 	CREATE TABLE IF NOT EXISTS ping_results (
 		id SERIAL PRIMARY KEY,
-		target_url VARCHAR(255) NOT NULL,
+		target_url TEXT NOT NULL,
 		protocol VARCHAR(10) NOT NULL,
 		status_code INT,
 		latency_ms BIGINT,
@@ -48,81 +61,92 @@ func InitPostgres() error {
 		checked_at TIMESTAMP NOT NULL
 	);`
 
-	_, err = DB.Exec(createTableQuery)
-	if err != nil {
-		return fmt.Errorf("failed to create table: %v", err)
+	if _, err = DB.Exec(createTableQuery); err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
 	}
 
-	// Create the active_monitors table to store our targets permanently
 	createMonitorsTable := `
 	CREATE TABLE IF NOT EXISTS active_monitors (
 		id SERIAL PRIMARY KEY,
 		protocol VARCHAR(10) NOT NULL,
-		target_url VARCHAR(255) UNIQUE NOT NULL,
-		owner_email VARCHAR(255) NOT NULL, -- NEW: Store the email here!
+		target_url TEXT UNIQUE NOT NULL,
+		owner_email VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	_, err = DB.Exec(createMonitorsTable)
-	if err != nil {
-		return fmt.Errorf("failed to create active_monitors table: %v", err)
+	if _, err = DB.Exec(createMonitorsTable); err != nil {
+		return fmt.Errorf("failed to create active_monitors table: %w", err)
+	}
+
+	// Existing deployments may still have VARCHAR(255); widening is safe in Postgres.
+	if _, err = DB.Exec(`ALTER TABLE ping_results ALTER COLUMN target_url TYPE TEXT`); err != nil {
+		log.Printf("[DATABASES] optional migrate ping_results.target_url: %v", err)
+	}
+	if _, err = DB.Exec(`ALTER TABLE active_monitors ALTER COLUMN target_url TYPE TEXT`); err != nil {
+		log.Printf("[DATABASES] optional migrate active_monitors.target_url: %v", err)
 	}
 
 	return nil
 }
 
-// GetRecentResults fetches the latest 'limit' number of ping results from the database
+func scanPingResultRow(rows *sql.Rows) (models.PingResult, error) {
+	var target, protocol, errMsg string
+	var statusCode int
+	var latencyMs int64
+	var isUp bool
+	var checkedAt time.Time
+	var owner sql.NullString
+
+	if err := rows.Scan(&target, &protocol, &statusCode, &latencyMs, &isUp, &errMsg, &checkedAt, &owner); err != nil {
+		return models.PingResult{}, err
+	}
+
+	return models.PingResult{
+		Job: models.MonitorJob{
+			Type:       models.Protocol(protocol),
+			Target:     target,
+			OwnerEmail: owner.String,
+		},
+		StatusCode: statusCode,
+		Latency:    time.Duration(latencyMs) * time.Millisecond,
+		Up:         isUp,
+		ErrorMsg:   errMsg,
+		Timestamp:  checkedAt,
+	}, nil
+}
+
+// GetRecentResults fetches the latest 'limit' number of ping results from the database.
 func GetRecentResults(limit int) ([]models.PingResult, error) {
-	// 1. Query the database, ordering by the newest checks first
 	query := `
-		SELECT target_url, protocol, status_code, latency_ms, is_up, error_msg, checked_at 
-		FROM ping_results 
-		ORDER BY checked_at DESC 
+		SELECT pr.target_url, pr.protocol, pr.status_code, pr.latency_ms, pr.is_up, pr.error_msg, pr.checked_at, am.owner_email
+		FROM ping_results pr
+		LEFT JOIN active_monitors am ON am.target_url = pr.target_url
+		ORDER BY pr.checked_at DESC
 		LIMIT $1
 	`
 	rows, err := DB.Query(query, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute select query: %v", err)
+		return nil, fmt.Errorf("failed to execute select query: %w", err)
 	}
 	defer rows.Close()
 
 	var results []models.PingResult
-
-	// 2. Loop through the returned rows
 	for rows.Next() {
-		var target, protocol, errMsg string
-		var statusCode int
-		var latencyMs int64
-		var isUp bool
-		var checkedAt time.Time
-
-		// 3. Scan the SQL columns into our Go variables
-		err := rows.Scan(&target, &protocol, &statusCode, &latencyMs, &isUp, &errMsg, &checkedAt)
+		ping, err := scanPingResultRow(rows)
 		if err != nil {
 			log.Printf("[DB ERROR] Failed to scan row: %v\n", err)
 			continue
 		}
-
-		// 4. Reconstruct our PingResult struct
-		ping := models.PingResult{
-			Job: models.MonitorJob{
-				Type:   models.Protocol(protocol),
-				Target: target,
-			},
-			StatusCode: statusCode,
-			Latency:    time.Duration(latencyMs) * time.Millisecond, // Convert DB integer back to Go Duration
-			Up:         isUp,
-			ErrorMsg:   errMsg,
-			Timestamp:  checkedAt,
-		}
-
 		results = append(results, ping)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating ping results: %w", err)
 	}
 
 	return results, nil
 }
 
-// GetAllTargets fetches all active URLs that we need to monitor
+// GetAllTargets fetches all active URLs that we need to monitor.
 func GetAllTargets() ([]models.MonitorJob, error) {
 	query := `SELECT protocol, target_url, owner_email FROM active_monitors`
 	rows, err := DB.Query(query)
@@ -134,22 +158,25 @@ func GetAllTargets() ([]models.MonitorJob, error) {
 	var targets []models.MonitorJob
 	for rows.Next() {
 		var job models.MonitorJob
-		// NEW: Scan the owner_email into the job struct
 		if err := rows.Scan(&job.Type, &job.Target, &job.OwnerEmail); err != nil {
+			log.Printf("[DB ERROR] Failed to scan target row: %v\n", err)
 			continue
 		}
 		targets = append(targets, job)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating targets: %w", err)
+	}
+
 	return targets, nil
 }
 
-// DeleteTarget removes a URL from our monitoring list
+// DeleteTarget removes a URL from our monitoring list.
 func DeleteTarget(targetURL string) error {
-	var cleanTarget = targetURL
-	var cleanTargetHttp = targetURL
-	var cleanTargetHttps = targetURL
+	cleanTarget := targetURL
+	cleanTargetHttp := targetURL
+	cleanTargetHttps := targetURL
 
-	// Generate variants to ensure all historical data is cleaned up
 	if !strings.HasPrefix(targetURL, "http://") && !strings.HasPrefix(targetURL, "https://") {
 		cleanTargetHttp = "http://" + targetURL
 		cleanTargetHttps = "https://" + targetURL
@@ -161,67 +188,59 @@ func DeleteTarget(targetURL string) error {
 		cleanTargetHttp = "http://" + cleanTarget
 	}
 
-	// First, scrub all historical data for this target from ping_results
 	_, err := DB.Exec(`DELETE FROM ping_results WHERE target_url IN ($1, $2, $3)`, cleanTarget, cleanTargetHttp, cleanTargetHttps)
 	if err != nil {
-		return fmt.Errorf("failed to delete historical ping results: %v", err)
+		return fmt.Errorf("failed to delete historical ping results: %w", err)
 	}
 
-	// Then, delete the target from active_monitors
 	query := `DELETE FROM active_monitors WHERE target_url IN ($1, $2, $3)`
 	_, err = DB.Exec(query, cleanTarget, cleanTargetHttp, cleanTargetHttps)
 	return err
 }
 
-// AddTarget inserts a new URL into our monitoring list
-// Add the ownerEmail parameter
-func AddTarget(protocol, targetURL, ownerEmail string) error {
-    query := `INSERT INTO active_monitors (protocol, target_url, owner_email) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`
-    _, err := DB.Exec(query, protocol, targetURL, ownerEmail)
-    return err
+// AddTarget inserts a new URL into our monitoring list.
+// inserted is false when target_url already exists (ON CONFLICT DO NOTHING).
+func AddTarget(protocol, targetURL, ownerEmail string) (inserted bool, err error) {
+	query := `INSERT INTO active_monitors (protocol, target_url, owner_email) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`
+	res, err := DB.Exec(query, protocol, targetURL, ownerEmail)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
-// GetLogsByTarget fetches the ping history for a specific target URL
+// GetLogsByTarget fetches the ping history for a specific target URL.
 func GetLogsByTarget(targetURL string, limit int) ([]models.PingResult, error) {
 	query := `
-		SELECT target_url, protocol, status_code, latency_ms, is_up, error_msg, checked_at 
-		FROM ping_results 
-		WHERE target_url = $1
-		ORDER BY checked_at DESC 
+		SELECT pr.target_url, pr.protocol, pr.status_code, pr.latency_ms, pr.is_up, pr.error_msg, pr.checked_at, am.owner_email
+		FROM ping_results pr
+		LEFT JOIN active_monitors am ON am.target_url = pr.target_url
+		WHERE pr.target_url = $1
+		ORDER BY pr.checked_at DESC
 		LIMIT $2
 	`
 	rows, err := DB.Query(query, targetURL, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query logs for %s: %v", targetURL, err)
+		return nil, fmt.Errorf("failed to query logs for %s: %w", targetURL, err)
 	}
 	defer rows.Close()
 
 	var results []models.PingResult
 	for rows.Next() {
-		var target, protocol, errMsg string
-		var statusCode int
-		var latencyMs int64
-		var isUp bool
-		var checkedAt time.Time
-
-		err := rows.Scan(&target, &protocol, &statusCode, &latencyMs, &isUp, &errMsg, &checkedAt)
+		ping, err := scanPingResultRow(rows)
 		if err != nil {
 			log.Printf("[DB ERROR] Failed to scan log row: %v\n", err)
 			continue
 		}
-
-		ping := models.PingResult{
-			Job: models.MonitorJob{
-				Type:   models.Protocol(protocol),
-				Target: target,
-			},
-			StatusCode: statusCode,
-			Latency:    time.Duration(latencyMs) * time.Millisecond,
-			Up:         isUp,
-			ErrorMsg:   errMsg,
-			Timestamp:  checkedAt,
-		}
 		results = append(results, ping)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating logs for %s: %w", targetURL, err)
+	}
+
 	return results, nil
 }

@@ -60,7 +60,7 @@ export default function Home() {
   // Add a new monitor
   const handleAddSite = async (protocol: string, url: string, email?: string) => {
     try {
-      await fetch("/api/monitor", {
+      const res = await fetch("/api/monitor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -69,6 +69,17 @@ export default function Home() {
           owner_email: email ?? "",
         }),
       });
+      if (res.status === 409) {
+        const data = (await res.json().catch(() => null)) as {
+          message?: string;
+        } | null;
+        console.warn(data?.message ?? "Target is already monitored");
+        return;
+      }
+      if (!res.ok) {
+        console.error("Failed to add monitor:", res.status, await res.text());
+        return;
+      }
       fetchTargets();
       fetchStatus();
     } catch (err) {

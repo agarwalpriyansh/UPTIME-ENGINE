@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"monitor-engine/models"
 	"monitor-engine/database"
+	"monitor-engine/models"
 )
 
 // APIServer holds our dependencies (like the jobs queue)
@@ -35,12 +35,20 @@ func (s *APIServer) AddMonitorHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	job.Normalize()
 
-	// Save it to PostgreSQL permanently!
-	err = database.AddTarget(string(job.Type), job.Target, job.OwnerEmail)
+	inserted, err := database.AddTarget(string(job.Type), job.Target, job.OwnerEmail)
 	if err != nil {
 		http.Error(w, "Failed to save target to database", http.StatusInternalServerError)
 		return
 	}
+	if !inserted {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("Target is already monitored: %s", job.Target),
+		})
+		return
+	}
+
 	// 3. Push the new job directly into the Worker Pool's queue!
 	// (This is exactly how a Task Queue Broker works)
 	s.JobsQueue <- job
