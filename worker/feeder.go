@@ -1,37 +1,54 @@
 package worker
 
 import (
-	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"monitor-engine/database"
 	"monitor-engine/models"
 )
 
-// StartTargetFeeder runs infinitely, feeding URLs to the workers
+// feedInterval returns how often the feeder re-queues all monitors (default 30s).
+// Set FEED_INTERVAL_SEC in the environment (seconds, minimum 1).
+func feedInterval() time.Duration {
+	s := os.Getenv("FEED_INTERVAL_SEC")
+	if s == "" {
+		return 30 * time.Second
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 30 * time.Second
+	}
+	return time.Duration(n) * time.Second
+}
+
+// feedTargetsOnce loads active monitors from Postgres and enqueues one job per target.
+func feedTargetsOnce(jobsQueue chan<- models.MonitorJob) {
+	targets, err := database.GetAllTargets()
+	if err != nil {
+		log.Printf("[FEEDER ERROR] Failed to fetch targets: %v\n", err)
+		return
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	log.Printf("[FEEDER] Feeding %d targets to the worker pool\n", len(targets))
+	for _, target := range targets {
+		jobsQueue <- target
+	}
+}
+
+// StartTargetFeeder runs forever: feeds all targets once at startup, then on every tick.
 func StartTargetFeeder(jobsQueue chan<- models.MonitorJob) {
-	// Wake up every 30 seconds
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(feedInterval())
+	defer ticker.Stop()
+
+	feedTargetsOnce(jobsQueue)
 
 	for range ticker.C {
-		// 1. Get all active targets from PostgreSQL
-		targets, err := database.GetAllTargets()
-		if err != nil {
-			log.Printf("[FEEDER ERROR] Failed to fetch targets: %v\n", err)
-			continue
-		}
-
-		// 2. If the database is empty, just wait for the next tick
-		if len(targets) == 0 {
-			continue
-		}
-
-		fmt.Printf("[FEEDER] Waking up! Feeding %d targets to the worker pool...\n", len(targets))
-
-		// 3. Push every target into the worker queue!
-		for _, target := range targets {
-			jobsQueue <- target
-		}
+		feedTargetsOnce(jobsQueue)
 	}
 }
