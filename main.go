@@ -26,6 +26,7 @@ func main() {
 	}
 
 	go worker.StartFlusher()
+	go worker.StartRetentionCleaner()
 
 	jobs := make(chan models.MonitorJob, 5000)
 	results := make(chan models.PingResult, 5000)

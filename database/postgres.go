@@ -86,7 +86,24 @@ func InitPostgres() error {
 		log.Printf("[DATABASES] optional migrate active_monitors.target_url: %v", err)
 	}
 
+	if _, err = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_ping_results_checked_at ON ping_results (checked_at)`); err != nil {
+		log.Printf("[DATABASES] optional index ping_results.checked_at: %v", err)
+	}
+
 	return nil
+}
+
+// DeleteOldPingResults removes rows in ping_results with checked_at before cutoff.
+func DeleteOldPingResults(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := DB.ExecContext(ctx, `DELETE FROM ping_results WHERE checked_at < $1`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete old ping results: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("rows affected: %w", err)
+	}
+	return n, nil
 }
 
 func scanPingResultRow(rows *sql.Rows) (models.PingResult, error) {
