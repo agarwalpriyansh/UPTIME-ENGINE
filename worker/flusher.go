@@ -3,9 +3,12 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"monitor-engine/database"
 	"monitor-engine/models"
@@ -25,9 +28,8 @@ func StartFlusher() {
 func flushToPostgres(ctx context.Context) {
 	// 1. Atomically pop up to 1000 items from the Redis list
 	// LPopCount is perfect because it reads and deletes the data from Redis in one atomic move!
-	results, err := database.RedisClient.LPopCount(ctx, "ping_buffer", 1000).Result()
-	
-	if err != nil && err.Error() != "redis: nil" {
+	results, err := database.RedisClient.LPopCount(ctx, database.PingBufferKey, 1000).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
 		log.Printf("[FLUSHER ERROR] Failed to read from Redis: %v\n", err)
 		return
 	}

@@ -4,60 +4,58 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"monitor-engine/models"
-	"os"
-
 )
 
-// We make this variable accessible to other packages
+// PingBufferKey is the Redis list that buffers ping JSON between workers and the flusher.
+// Must match the key used in worker/flusher.go.
+const PingBufferKey = "ping_buffer"
+
+// RedisClient is the shared connection pool (initialized by InitRedis).
 var RedisClient *redis.Client
 
-// InitRedis connects to our Dockerized Redis instance
+// InitRedis connects to Redis using REDIS_ADDR and optional REDIS_PASSWORD.
 func InitRedis() error {
-	// NEW: Read from environment, fallback to localhost if not found
 	redisAddr := os.Getenv("REDIS_ADDR")
 	if redisAddr == "" {
-		redisAddr = "localhost:6379" 
+		redisAddr = "localhost:6379"
 	}
+	password := os.Getenv("REDIS_PASSWORD")
 
 	RedisClient = redis.NewClient(&redis.Options{
 		Addr:     redisAddr,
-		Password: "",               
-		DB:       0,                
+		Password: password,
+		DB:       0,
 	})
 
-	// Create a short timeout context just for the ping
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Ping the database to check if the connection is alive
-	_, err := RedisClient.Ping(ctx).Result()
-	if err != nil {
-		return fmt.Errorf("failed to connect to Redis: %v", err)
+	if _, err := RedisClient.Ping(ctx).Result(); err != nil {
+		return fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
-	fmt.Println("[DATABASES] Successfully connected to Redis!")
+	log.Println("[DATABASES] Successfully connected to Redis!")
 	return nil
 }
 
+// SaveResult appends one ping result JSON to the Redis buffer list.
 func SaveResult(result models.PingResult) error {
-	// 1. Convert the Go struct into a JSON byte array
 	jsonData, err := json.Marshal(result)
 	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %v", err)
+		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	// 2. We use a background context for the database write
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	// 3. RPush (Right Push) adds this JSON string to the end of a list named "ping_buffer"
-	err = RedisClient.RPush(ctx, "ping_buffer", jsonData).Err()
-	if err != nil {
-		return fmt.Errorf("failed to write to Redis: %v", err)
+	if err := RedisClient.RPush(ctx, PingBufferKey, jsonData).Err(); err != nil {
+		return fmt.Errorf("failed to write to Redis: %w", err)
 	}
-
 	return nil
 }
