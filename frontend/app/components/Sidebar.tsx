@@ -11,19 +11,19 @@ import {
   SignalZero,
 } from "lucide-react";
 import { useState } from "react";
-
-interface MonitorJob {
-  type: string;
-  target: string;
-}
+import type { MonitorJob } from "../types";
 
 interface SidebarProps {
   targets: MonitorJob[];
   selectedSite: string | null;
   siteStatuses: Record<string, boolean>;
   onSelectSite: (target: string | null) => void;
-  onAddSite: (protocol: string, url: string, email?: string) => void;
-  onDeleteSite: (url: string) => void;
+  onAddSite: (
+    protocol: string,
+    url: string,
+    email?: string
+  ) => Promise<boolean>;
+  onDeleteSite: (url: string) => Promise<boolean>;
 }
 
 export default function Sidebar({
@@ -44,10 +44,19 @@ export default function Sidebar({
     e.preventDefault();
     if (!newUrl.trim()) return;
     setIsSubmitting(true);
-    await onAddSite(newProtocol, newUrl.trim(), newEmail.trim() || undefined);
-    setNewUrl("");
-    setNewEmail("");
-    setIsSubmitting(false);
+    try {
+      const ok = await onAddSite(
+        newProtocol,
+        newUrl.trim(),
+        newEmail.trim() || undefined
+      );
+      if (ok) {
+        setNewUrl("");
+        setNewEmail("");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (collapsed) {
@@ -57,6 +66,8 @@ export default function Sidebar({
         style={{ background: "rgba(10, 14, 26, 0.95)" }}
       >
         <button
+          type="button"
+          aria-label="Expand sidebar"
           onClick={() => setCollapsed(false)}
           className="p-2 rounded-lg hover:bg-gray-800 transition-colors text-gray-400 hover:text-white mb-6"
         >
@@ -69,6 +80,7 @@ export default function Sidebar({
             const isSelected = selectedSite === t.target;
             return (
               <button
+                type="button"
                 key={t.target}
                 onClick={() => onSelectSite(t.target)}
                 className={`p-2 rounded-lg transition-all ${
@@ -106,6 +118,8 @@ export default function Sidebar({
             <h1 className="text-lg font-bold gradient-text">Uptime Engine</h1>
           </div>
           <button
+            type="button"
+            aria-label="Collapse sidebar"
             onClick={() => setCollapsed(true)}
             className="p-1.5 rounded-lg hover:bg-gray-800 transition-colors text-gray-500 hover:text-gray-300"
             suppressHydrationWarning
@@ -218,12 +232,14 @@ export default function Sidebar({
 
                   {/* Delete */}
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteSite(t.target);
+                      void onDeleteSite(t.target);
                     }}
                     className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition-all opacity-0 group-hover:opacity-100"
                     title="Remove monitor"
+                    aria-label={`Remove monitor ${t.target}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>

@@ -32,8 +32,9 @@ export default function Dashboard({ targets, results: rawResults }: DashboardPro
   // Compute per-site latest status
   const siteLatest: Record<string, PingResult> = {};
   results.forEach((r) => {
-    if (!siteLatest[r.job.target]) {
-      siteLatest[r.job.target] = r;
+    const key = r.job.target;
+    if (siteLatest[key] === undefined) {
+      siteLatest[key] = r;
     }
   });
 

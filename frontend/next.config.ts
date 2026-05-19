@@ -1,14 +1,16 @@
 import type { NextConfig } from "next";
 
+const backend =
+  process.env.BACKEND_ORIGIN?.replace(/\/$/, "") ?? "http://127.0.0.1:8080";
+
 const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
-        // Using 127.0.0.1 is safer than localhost for Node.js -> Docker routing
-        destination: 'http://127.0.0.1:8080/api/:path*', 
+        source: "/api/:path*",
+        destination: `${backend}/api/:path*`,
       },
-    ]
+    ];
   },
 };
 

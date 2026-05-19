@@ -18,6 +18,11 @@ export const metadata: Metadata = {
     "Monitor your websites and services in real-time with latency charts, uptime tracking, and instant alerts.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
