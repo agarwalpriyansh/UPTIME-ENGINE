@@ -64,17 +64,23 @@ func main() {
 			}
 
 			target := result.Job.Target
+			metrics.RecordSiteCheck(target, result.Up, float64(result.Latency.Milliseconds()))
+
 			prevState, exists := lastState[target]
 
 			if !exists {
 				lastState[target] = result.Up
 				if !result.Up {
+					metrics.RecordIncident(target)
 					log.Printf("[ALERT] %s down on initial check\n", target)
 					go notifications.SendEmailAlert(target, result.Up, result.Job.OwnerEmail)
 				}
 			} else if prevState != result.Up {
 				log.Printf("[ALERT] %s state changed: %v -> %v\n", target, prevState, result.Up)
 				lastState[target] = result.Up
+				if !result.Up {
+					metrics.RecordIncident(target)
+				}
 				go notifications.SendEmailAlert(target, result.Up, result.Job.OwnerEmail)
 			}
 		}

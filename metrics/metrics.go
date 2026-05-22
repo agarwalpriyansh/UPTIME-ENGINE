@@ -1,5 +1,4 @@
 // Package metrics exposes Prometheus instruments for the uptime engine.
-// Labels intentionally avoid per-URL cardinality; use Postgres/UI for per-site history.
 package metrics
 
 import (
@@ -75,6 +74,28 @@ var (
 		Name: "uptime_retention_deleted_rows_total",
 		Help: "Rows removed from ping_results by the retention job.",
 	})
+
+	// Per-site metrics (used by the Grafana operations dashboard).
+	siteStatus = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "uptime_site_status",
+		Help: "Current site status: 1=up, 0=down.",
+	}, []string{"site"})
+
+	responseTimeMs = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "uptime_response_time_ms",
+		Help:    "Health check response time in milliseconds.",
+		Buckets: []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+	}, []string{"site"})
+
+	totalChecksTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "uptime_total_checks_total",
+		Help: "Total health checks completed per site.",
+	}, []string{"site"})
+
+	incidentsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "uptime_incidents_total",
+		Help: "Total downtime incidents per site (state transitions to down).",
+	}, []string{"site"})
 )
 
 var (
@@ -92,7 +113,23 @@ func SetResultsQueueDepthFunc(fn func() int) {
 	resultsQueueDepthFn = fn
 }
 
-// RecordCheck increments check counters and observes latency.
+// RecordSiteCheck updates per-site gauges, histogram, and check counter.
+func RecordSiteCheck(site string, up bool, latencyMs float64) {
+	status := 0.0
+	if up {
+		status = 1.0
+	}
+	siteStatus.WithLabelValues(site).Set(status)
+	responseTimeMs.WithLabelValues(site).Observe(latencyMs)
+	totalChecksTotal.WithLabelValues(site).Inc()
+}
+
+// RecordIncident increments the per-site incident counter (transition to down).
+func RecordIncident(site string) {
+	incidentsTotal.WithLabelValues(site).Inc()
+}
+
+// RecordCheck increments aggregate check counters and observes latency.
 func RecordCheck(protocol string, up bool, latency time.Duration) {
 	result := "down"
 	if up {

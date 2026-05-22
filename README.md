@@ -2,7 +2,7 @@
 
 A distributed, multi-tenant server monitoring system built to track website health, measure latency, and dispatch real-time email alerts upon state changes. 
 
-The architecture leverages a Go-based backend for high-throughput concurrent processing, a Redis message broker for task queuing, PostgreSQL for persistent storage, and a modern Next.js React frontend for real-time visualization.
+The architecture leverages a Go-based backend for high-throughput concurrent processing, a Redis message broker for task queuing, PostgreSQL for persistent storage, and a Next.js React frontend for real-time visualization. `docker compose up` starts the full stack (frontend, API, Redis, Postgres, Prometheus, Grafana).
 
 ## Architecture & Data Flow
 
@@ -34,11 +34,12 @@ docker compose up -d --build
 
 | Service    | URL                         |
 |------------|-----------------------------|
+| Frontend   | http://127.0.0.1:3000       |
 | API        | http://127.0.0.1:8080       |
 | Prometheus | http://127.0.0.1:9090       |
 | Grafana    | http://127.0.0.1:3001       |
 
-Grafana login: `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `.env` (defaults `admin` / `admin`). Open dashboard **Uptime Engine** under folder **Uptime Monitor**.
+Grafana login: `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `.env` (defaults `admin` / `admin`). Open dashboard **Uptime Engine — Operations Dashboard** under folder **Uptime Monitor**, or import `grafana/provisioning/dashboards/json/uptime-operations.json` via **Dashboards → Import**.
 
 Optional: `METRICS_COLLECT_INTERVAL_SEC` (default `15`) controls how often gauges (Redis buffer, active monitors) refresh.
 
