@@ -87,6 +87,8 @@ func main() {
 	http.HandleFunc("/api/status", server.GetStatusHandler)
 	http.HandleFunc("/api/targets", server.GetTargetsHandler)
 	http.HandleFunc("/api/logs", server.GetLogsHandler)
+	http.HandleFunc("/api/incidents", server.GetIncidentsHandler)
+	http.HandleFunc("/api/ssl", server.GetSSLHandler)
 	http.Handle("/metrics", promhttp.Handler())
 
 	addr := getenvDefault("LISTEN_ADDR", ":8080")

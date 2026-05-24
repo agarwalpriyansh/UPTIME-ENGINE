@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Globe,
   ArrowLeft,
@@ -8,6 +9,11 @@ import {
   Clock,
   Timer,
   Wifi,
+  Lock,
+  AlertTriangle,
+  TrendingDown,
+  TrendingUp,
+  BarChart3,
 } from "lucide-react";
 import {
   AreaChart,
@@ -21,7 +27,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import type { PingResult } from "../types";
+import type { PingResult, Incident, SSLInfo } from "../types";
 
 interface SiteDetailProps {
   target: string;
@@ -29,23 +35,133 @@ interface SiteDetailProps {
   onBack: () => void;
 }
 
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, idx)];
+}
+
+function uptimeInWindow(logs: PingResult[], windowMs: number): number | null {
+  const cutoff = Date.now() - windowMs;
+  const inWindow = logs.filter((l) => new Date(l.timestamp).getTime() >= cutoff);
+  if (inWindow.length === 0) return null;
+  const up = inWindow.filter((l) => l.up).length;
+  return (up / inWindow.length) * 100;
+}
+
+function formatDownDuration(ms: number): string {
+  if (ms < 0) ms = 0;
+  const totalMins = Math.floor(ms / 60000);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  const s = Math.floor(ms / 1000);
+  return `${s}s`;
+}
+
+function findDownSince(logs: PingResult[], openIncident: Incident | null): Date | null {
+  if (openIncident?.status === "Active") {
+    return new Date(openIncident.started_at);
+  }
+  if (logs.length === 0) return null;
+  let downStart: Date | null = null;
+  for (let i = 0; i < logs.length; i++) {
+    if (!logs[i].up) {
+      downStart = new Date(logs[i].timestamp);
+    } else {
+      break;
+    }
+  }
+  return downStart;
+}
+
+function findLastSuccessfulCheck(logs: PingResult[]): PingResult | null {
+  return logs.find((l) => l.up) ?? null;
+}
+
 export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
+  const siteId = target;
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [sslInfo, setSslInfo] = useState<SSLInfo | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
   const latestPing = logs.length > 0 ? logs[0] : null;
   const protocol = latestPing?.job.type || "—";
   const isUp = latestPing?.up ?? false;
 
-  // Uptime percentage
+  const fetchIncidents = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/incidents?siteId=${encodeURIComponent(siteId)}`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setIncidents(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch incidents:", err);
+    }
+  }, [siteId]);
+
+  const fetchSSL = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/ssl?siteId=${encodeURIComponent(siteId)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSslInfo(data);
+    } catch (err) {
+      console.error("Failed to fetch SSL:", err);
+    }
+  }, [siteId]);
+
+  useEffect(() => {
+    void fetchIncidents();
+    void fetchSSL();
+    const interval = setInterval(() => {
+      void fetchIncidents();
+      void fetchSSL();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [fetchIncidents, fetchSSL]);
+
+  useEffect(() => {
+    if (!isUp) {
+      const id = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(id);
+    }
+  }, [isUp]);
+
+  const openIncident = incidents.find((i) => i.status === "Active") ?? null;
+  const downSince = findDownSince(logs, openIncident);
+  const lastSuccess = findLastSuccessfulCheck(logs);
+
   const totalChecks = logs.length;
   const upChecks = logs.filter((l) => l.up).length;
   const uptimePercent = totalChecks > 0 ? (upChecks / totalChecks) * 100 : 0;
 
-  // Average latency
+  const latencies = useMemo(
+    () => logs.map((l) => l.latency_ms),
+    [logs]
+  );
+  const minLatency = latencies.length > 0 ? Math.min(...latencies) : 0;
+  const maxLatency = latencies.length > 0 ? Math.max(...latencies) : 0;
+  const p95Latency = percentile(latencies, 95);
+
   const avgLatency =
     totalChecks > 0
       ? logs.reduce((sum, l) => sum + l.latency_ms, 0) / totalChecks
       : 0;
 
-  // Latency chart data (reversed so oldest is left)
+  const availability = useMemo(
+    () => ({
+      h24: uptimeInWindow(logs, 24 * 60 * 60 * 1000),
+      d7: uptimeInWindow(logs, 7 * 24 * 60 * 60 * 1000),
+      d30: uptimeInWindow(logs, 30 * 24 * 60 * 60 * 1000),
+    }),
+    [logs]
+  );
+
   const latencyData = [...logs]
     .reverse()
     .map((l) => ({
@@ -57,11 +173,55 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
       up: l.up,
     }));
 
-  // Pie chart data
   const pieData = [
     { name: "Up", value: upChecks, color: "#10b981" },
     { name: "Down", value: totalChecks - upChecks, color: "#ef4444" },
   ].filter((d) => d.value > 0);
+
+  const downDurationLabel =
+    !isUp && downSince
+      ? formatDownDuration(now - downSince.getTime())
+      : null;
+
+  const sslBadge = (() => {
+    if (!sslInfo || sslInfo.status === "unavailable") return null;
+    if (sslInfo.status === "expired") {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-400 bg-red-400/10 px-2 py-0.5 rounded border border-red-400/20">
+          <Lock className="w-3 h-3" />
+          SSL Expired
+        </span>
+      );
+    }
+    if (sslInfo.status === "warning") {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+          <AlertTriangle className="w-3 h-3" />
+          SSL {sslInfo.days_remaining}d
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-400/20">
+        <Lock className="w-3 h-3" />
+        SSL Valid
+      </span>
+    );
+  })();
+
+  const uptimeColor = (pct: number | null) => {
+    if (pct === null) return "text-gray-500";
+    if (pct >= 99) return "text-emerald-400";
+    if (pct >= 95) return "text-amber-400";
+    return "text-red-400";
+  };
+
+  const progressBarColor = (pct: number | null) => {
+    if (pct === null) return "bg-gray-700";
+    if (pct >= 99) return "bg-emerald-500";
+    if (pct >= 95) return "bg-amber-500";
+    return "bg-red-500";
+  };
 
   return (
     <div className="flex-1 p-8 overflow-y-auto animate-fade-in">
@@ -90,10 +250,11 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-100">{target}</h1>
-              <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
                 <span className="text-xs font-semibold text-gray-500 uppercase px-2 py-0.5 rounded bg-gray-800 border border-gray-700">
                   {protocol}
                 </span>
+                {sslBadge}
                 <span
                   className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
                     isUp ? "text-emerald-400" : "text-red-400"
@@ -105,6 +266,11 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
                     <XCircle className="w-3.5 h-3.5" />
                   )}
                   {isUp ? "Operational" : "Down"}
+                  {!isUp && downDurationLabel && (
+                    <span className="text-red-300/90 font-normal">
+                      · Down for {downDurationLabel}
+                    </span>
+                  )}
                 </span>
               </div>
             </div>
@@ -115,13 +281,23 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
               <p className="text-sm text-gray-400">
                 {new Date(latestPing.timestamp).toLocaleString()}
               </p>
+              {lastSuccess && (
+                <>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Last successful check
+                  </p>
+                  <p className="text-sm text-emerald-400/90">
+                    {new Date(lastSuccess.timestamp).toLocaleString()}
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>
       </div>
 
       {/* Stat Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -178,9 +354,93 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
         </div>
       </div>
 
+      {/* Response Time Stats Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className="glass-card p-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Min Response
+            </span>
+            <div className="p-1.5 rounded-lg bg-cyan-400/10">
+              <TrendingDown className="w-4 h-4 text-cyan-400" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-cyan-400">
+            {minLatency.toFixed(1)}
+            <span className="text-lg font-normal text-cyan-400/60 ml-1">
+              ms
+            </span>
+          </p>
+        </div>
+
+        <div className="glass-card p-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Max Response
+            </span>
+            <div className="p-1.5 rounded-lg bg-rose-400/10">
+              <TrendingUp className="w-4 h-4 text-rose-400" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-rose-400">
+            {maxLatency.toFixed(1)}
+            <span className="text-lg font-normal text-rose-400/60 ml-1">
+              ms
+            </span>
+          </p>
+        </div>
+
+        <div className="glass-card p-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              P95 Response
+            </span>
+            <div className="p-1.5 rounded-lg bg-violet-400/10">
+              <BarChart3 className="w-4 h-4 text-violet-400" />
+            </div>
+          </div>
+          <p className="text-3xl font-bold text-violet-400">
+            {p95Latency.toFixed(1)}
+            <span className="text-lg font-normal text-violet-400/60 ml-1">
+              ms
+            </span>
+          </p>
+        </div>
+      </div>
+
+      {/* Availability Breakdown */}
+      <div className="glass-card p-6 mb-8">
+        <h2 className="text-sm font-semibold text-gray-300 mb-5 uppercase tracking-wider">
+          Availability Breakdown
+        </h2>
+        <div className="space-y-4">
+          {(
+            [
+              { label: "Last 24 hours", value: availability.h24 },
+              { label: "Last 7 days", value: availability.d7 },
+              { label: "Last 30 days", value: availability.d30 },
+            ] as const
+          ).map(({ label, value }) => (
+            <div key={label}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sm text-gray-400">{label}</span>
+                <span className={`text-sm font-semibold ${uptimeColor(value)}`}>
+                  {value !== null ? `${value.toFixed(2)}%` : "No data"}
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${progressBarColor(value)}`}
+                  style={{ width: value !== null ? `${Math.min(value, 100)}%` : "0%" }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Latency Area Chart */}
         <div className="glass-card p-6 lg:col-span-2">
           <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider">
             Latency Over Time
@@ -258,7 +518,6 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
           )}
         </div>
 
-        {/* Uptime Pie Chart */}
         <div className="glass-card p-6 flex flex-col items-center justify-center">
           <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wider self-start">
             Uptime Ratio
@@ -311,8 +570,8 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
         </div>
       </div>
 
-      {/* Logs Table */}
-      <div className="glass-card overflow-hidden">
+      {/* Ping Log History */}
+      <div className="glass-card overflow-hidden mb-8">
         <div className="px-6 py-4 border-b border-gray-800/60">
           <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
             Ping Log History
@@ -320,13 +579,15 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
         </div>
         <div className="overflow-x-auto max-h-96 overflow-y-auto">
           <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0" style={{ background: "rgba(17, 24, 39, 0.95)" }}>
+            <thead
+              className="sticky top-0"
+              style={{ background: "rgba(17, 24, 39, 0.95)" }}
+            >
               <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800/40">
                 <th className="px-6 py-3 font-medium">Time</th>
                 <th className="px-6 py-3 font-medium">Status</th>
                 <th className="px-6 py-3 font-medium">HTTP Code</th>
                 <th className="px-6 py-3 font-medium">Latency</th>
-
               </tr>
             </thead>
             <tbody>
@@ -372,9 +633,84 @@ export default function SiteDetail({ target, logs, onBack }: SiteDetailProps) {
                         {log.latency_ms.toFixed(2)} ms
                       </span>
                     </td>
-
                   </tr>
                 ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Incident History */}
+      <div className="glass-card overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-800/60">
+          <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+            Incident History
+          </h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead style={{ background: "rgba(17, 24, 39, 0.95)" }}>
+              <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800/40">
+                <th className="px-6 py-3 font-medium">Incident #</th>
+                <th className="px-6 py-3 font-medium">Started</th>
+                <th className="px-6 py-3 font-medium">Resolved</th>
+                <th className="px-6 py-3 font-medium">Duration</th>
+                <th className="px-6 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {incidents.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-6 py-12 text-center text-gray-600"
+                  >
+                    No incidents recorded for this site.
+                  </td>
+                </tr>
+              ) : (
+                incidents.map((inc) => {
+                  const isActive = inc.status === "Active";
+                  return (
+                    <tr
+                      key={inc.id}
+                      className={`border-b border-gray-800/30 transition-colors ${
+                        isActive
+                          ? "bg-red-500/10 hover:bg-red-500/15"
+                          : "hover:bg-gray-800/30"
+                      }`}
+                    >
+                      <td className="px-6 py-2.5 text-sm font-mono text-gray-300">
+                        #{inc.incident_number}
+                      </td>
+                      <td className="px-6 py-2.5 text-sm text-gray-400">
+                        {new Date(inc.started_at).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-2.5 text-sm text-gray-400">
+                        {inc.resolved_at
+                          ? new Date(inc.resolved_at).toLocaleString()
+                          : "—"}
+                      </td>
+                      <td className="px-6 py-2.5 text-sm text-gray-400 font-mono">
+                        {isActive && downSince
+                          ? formatDownDuration(now - downSince.getTime())
+                          : inc.duration}
+                      </td>
+                      <td className="px-6 py-2.5">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            isActive
+                              ? "text-red-400 bg-red-400/15 border border-red-400/30"
+                              : "text-gray-400 bg-gray-800/60"
+                          }`}
+                        >
+                          {inc.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

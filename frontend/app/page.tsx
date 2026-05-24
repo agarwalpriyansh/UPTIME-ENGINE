@@ -51,7 +51,7 @@ export default function Home() {
   const fetchSiteLogs = useCallback(async (url: string) => {
     try {
       const res = await fetch(
-        `/api/logs?url=${encodeURIComponent(url)}&limit=200`
+        `/api/logs?url=${encodeURIComponent(url)}&limit=2000`
       );
       if (!res.ok) return;
       const data = await res.json();
