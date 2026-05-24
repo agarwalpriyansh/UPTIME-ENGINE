@@ -119,3 +119,47 @@ func (p *PingResult) UnmarshalJSON(data []byte) error {
 	}
 	return nil
 }
+
+// Site is a monitored target used by the alerting system.
+type Site struct {
+	ID         string // stable identifier (target URL)
+	URL        string
+	OwnerEmail string
+}
+
+// SiteFromJob builds a Site from a completed monitor job.
+func SiteFromJob(job MonitorJob) Site {
+	return Site{
+		ID:         job.Target,
+		URL:        job.Target,
+		OwnerEmail: job.OwnerEmail,
+	}
+}
+
+// IncidentStatus is the lifecycle state of a downtime incident.
+type IncidentStatus string
+
+const (
+	IncidentOpen     IncidentStatus = "open"
+	IncidentResolved IncidentStatus = "resolved"
+)
+
+// Incident records one downtime period for a site in PostgreSQL.
+type Incident struct {
+	ID                   int64
+	SiteID               string
+	StartedAt            time.Time
+	ResolvedAt           *time.Time
+	AlertSentAt          *time.Time
+	LastEscalationAt     *time.Time
+	ConsecutiveFailures  int
+	Status               IncidentStatus
+}
+
+// AlertState tracks per-site failure streaks and cooldowns (Redis + memory fallback).
+type AlertState struct {
+	SiteID              string
+	LastAlertSentAt     time.Time
+	ConsecutiveFailures int
+	IsDown              bool
+}

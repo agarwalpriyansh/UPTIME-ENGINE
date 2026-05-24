@@ -11,6 +11,7 @@ import (
 
 	"monitor-engine/metrics"
 	"monitor-engine/models"
+	"monitor-engine/notifications"
 )
 
 // httpCheckClient is tuned for health checks: bounded dial/TLS/header waits and connection reuse.
@@ -30,8 +31,9 @@ var httpCheckClient = &http.Client{
 	},
 }
 
-// StartWorker pulls jobs from the channel and executes the correct protocol check.
-func StartWorker(id int, jobs <-chan models.MonitorJob, results chan<- models.PingResult) {
+// StartWorker pulls jobs from the channel, runs health checks, and processes alerts.
+// Alert failures are logged and never crash the worker loop.
+func StartWorker(id int, jobs <-chan models.MonitorJob, results chan<- models.PingResult, am *notifications.AlertManager) {
 	for job := range jobs {
 		var result models.PingResult
 		switch job.Type {
@@ -48,7 +50,25 @@ func StartWorker(id int, jobs <-chan models.MonitorJob, results chan<- models.Pi
 		}
 		metrics.RecordCheck(string(job.Type), result.Up, result.Latency)
 		results <- result
+
+		if am != nil {
+			site := models.SiteFromJob(job)
+			checkedAt := result.Timestamp
+			if checkedAt.IsZero() {
+				checkedAt = time.Now()
+			}
+			go processAlert(am, site, result.Up, checkedAt)
+		}
 	}
+}
+
+func processAlert(am *notifications.AlertManager, site models.Site, up bool, at time.Time) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ALERT] panic processing %s: %v", site.ID, r)
+		}
+	}()
+	am.ProcessCheck(site, up, at)
 }
 
 func httpCheck(id int, job models.MonitorJob) models.PingResult {

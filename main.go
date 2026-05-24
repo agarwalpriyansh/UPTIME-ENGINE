@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -37,17 +38,17 @@ func main() {
 	metrics.SetJobsQueueDepthFunc(func() int { return len(jobs) })
 	metrics.SetResultsQueueDepthFunc(func() int { return len(results) })
 
+	alertManager := buildAlertManager()
+
 	numWorkers := parseWorkerCount()
 	log.Printf("Starting %d workers\n", numWorkers)
 	for w := 1; w <= numWorkers; w++ {
-		go worker.StartWorker(w, jobs, results)
+		go worker.StartWorker(w, jobs, results, alertManager)
 	}
 
 	go worker.StartTargetFeeder(jobs)
 
 	go func() {
-		lastState := make(map[string]bool)
-
 		for result := range results {
 			if result.Timestamp.IsZero() {
 				result.Timestamp = time.Now()
@@ -65,24 +66,6 @@ func main() {
 
 			target := result.Job.Target
 			metrics.RecordSiteCheck(target, result.Up, float64(result.Latency.Milliseconds()))
-
-			prevState, exists := lastState[target]
-
-			if !exists {
-				lastState[target] = result.Up
-				if !result.Up {
-					metrics.RecordIncident(target)
-					log.Printf("[ALERT] %s down on initial check\n", target)
-					go notifications.SendEmailAlert(target, result.Up, result.Job.OwnerEmail)
-				}
-			} else if prevState != result.Up {
-				log.Printf("[ALERT] %s state changed: %v -> %v\n", target, prevState, result.Up)
-				lastState[target] = result.Up
-				if !result.Up {
-					metrics.RecordIncident(target)
-				}
-				go notifications.SendEmailAlert(target, result.Up, result.Job.OwnerEmail)
-			}
 		}
 	}()
 
@@ -137,4 +120,17 @@ func getenvDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func buildAlertManager() *notifications.AlertManager {
+	var channels []notifications.Notifier
+	channels = append(channels, notifications.NewEmailNotifier())
+	if strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")) != "" {
+		channels = append(channels, notifications.NewSlackNotifier())
+	}
+	multi := notifications.NewMultiNotifier(channels...)
+	cfg := notifications.LoadAlertConfig()
+	log.Printf("[ALERT] cooldown=%v failures=%d escalation=%v channels=%d\n",
+		cfg.Cooldown, cfg.FailureThreshold, cfg.EscalationThreshold, len(channels))
+	return notifications.NewAlertManager(multi, cfg)
 }

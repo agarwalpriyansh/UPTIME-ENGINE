@@ -90,6 +90,24 @@ func InitPostgres() error {
 		log.Printf("[DATABASES] optional index ping_results.checked_at: %v", err)
 	}
 
+	createIncidentsTable := `
+	CREATE TABLE IF NOT EXISTS incidents (
+		id SERIAL PRIMARY KEY,
+		site_id TEXT NOT NULL,
+		started_at TIMESTAMP NOT NULL,
+		resolved_at TIMESTAMP NULL,
+		alert_sent_at TIMESTAMP NULL,
+		last_escalation_at TIMESTAMP NULL,
+		consecutive_failures INT NOT NULL DEFAULT 0,
+		status VARCHAR(20) NOT NULL DEFAULT 'open'
+	);`
+	if _, err = DB.Exec(createIncidentsTable); err != nil {
+		return fmt.Errorf("failed to create incidents table: %w", err)
+	}
+	if _, err = DB.Exec(`CREATE INDEX IF NOT EXISTS idx_incidents_site_status ON incidents (site_id, status)`); err != nil {
+		log.Printf("[DATABASES] optional index incidents.site_status: %v", err)
+	}
+
 	return nil
 }
 
