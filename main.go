@@ -8,14 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"monitor-engine/api"
 	"monitor-engine/database"
 	"monitor-engine/metrics"
 	"monitor-engine/models"
 	"monitor-engine/notifications"
 	"monitor-engine/worker"
+
+	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {

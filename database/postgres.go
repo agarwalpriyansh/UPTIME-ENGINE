@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
 	"monitor-engine/models"
+
+	_ "github.com/lib/pq"
 )
 
 var DB *sql.DB
