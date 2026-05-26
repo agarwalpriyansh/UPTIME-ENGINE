@@ -9,7 +9,7 @@ services:
         BACKEND_ORIGIN: http://api:8080
     container_name: uptime-frontend
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     environment:
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
@@ -96,7 +96,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     ports:
-      - "127.0.0.1:3001:3000"
+      - "3001:3000"
     depends_on:
       - prometheus
     restart: unless-stopped
