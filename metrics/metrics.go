@@ -124,6 +124,14 @@ func RecordSiteCheck(site string, up bool, latencyMs float64) {
 	totalChecksTotal.WithLabelValues(site).Inc()
 }
 
+// DeleteSiteMetrics deletes the site's metrics from the Prometheus registry vectors.
+func DeleteSiteMetrics(site string) {
+	siteStatus.DeleteLabelValues(site)
+	responseTimeMs.DeleteLabelValues(site)
+	totalChecksTotal.DeleteLabelValues(site)
+	incidentsTotal.DeleteLabelValues(site)
+}
+
 // RecordIncident increments the per-site incident counter (transition to down).
 func RecordIncident(site string) {
 	incidentsTotal.WithLabelValues(site).Inc()

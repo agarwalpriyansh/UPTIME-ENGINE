@@ -50,10 +50,9 @@ func (e *EmailNotifier) SendDownAlert(site models.Site, failureCount int, firstF
 func (e *EmailNotifier) SendRecoveryAlert(site models.Site, downtimeDuration time.Duration) error {
 	subj := "RECOVERY: " + displayHost(site.URL) + " is back online"
 	body := fmt.Sprintf(
-		"Site: %s\r\nWas down for: %s\r\nRecovered at: %s\r\n",
+		"Site: %s\r\nDown for: %s\r\nImmediate attention is required.\r\n",
 		safeHeader(site.URL),
 		formatDuration(downtimeDuration),
-		time.Now().Format(time.RFC1123),
 	)
 	return e.send(site.OwnerEmail, subj, body, "recovery")
 }

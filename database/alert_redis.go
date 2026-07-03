@@ -16,6 +16,7 @@ var (
 	alertMemFallback sync.Map // siteID -> models.AlertState
 )
 
+// generates a Redis key for alert tracking based on the site ID and field name.
 func alertFailuresKey(siteID string) string { return "alert:failures:" + siteID }
 func alertCooldownKey(siteID string) string { return "alert:cooldown:" + siteID }
 func alertIsDownKey(siteID string) string    { return "alert:isdown:" + siteID }

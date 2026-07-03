@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"monitor-engine/database"
+	"monitor-engine/metrics"
 	"monitor-engine/models"
 )
 
@@ -92,6 +93,7 @@ func (s *APIServer) DeleteMonitorHandler(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Failed to delete target", http.StatusInternalServerError)
 		return
 	}
+	metrics.DeleteSiteMetrics(targetURL)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

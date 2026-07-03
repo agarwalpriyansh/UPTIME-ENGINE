@@ -18,8 +18,8 @@ import (
 var DB *sql.DB
 
 const (
-	maxOpenConns    = 25
-	maxIdleConns    = 5
+	maxOpenConns    = 25 // Maximum number of open connections to the database.If Worker26 needs the database, it waits until a connection becomes free.
+	maxIdleConns    = 5 // Instead of closing every connection immediately, Go keeps 5 idle connections ready.
 	connMaxLifetime = 5 * time.Minute
 	initPingTimeout = 5 * time.Second
 )
