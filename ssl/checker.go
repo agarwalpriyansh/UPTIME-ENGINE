@@ -18,6 +18,11 @@ type Info struct {
 	Error          string     `json:"error,omitempty"`
 }
 
+// TLSConfig holds the base configuration for tls dialing. It can be customized in tests.
+var TLSConfig = &tls.Config{
+	MinVersion: tls.VersionTLS12,
+}
+
 const warningDays = 30
 
 // Check inspects the TLS certificate for an HTTPS target URL.
@@ -39,12 +44,24 @@ func Check(targetURL string) Info {
 		return Info{Status: "unavailable", Error: "missing host"}
 	}
 
-	addr := net.JoinHostPort(host, "443")
+	port := u.Port()
+	if port == "" {
+		port = "443"
+	}
+	addr := net.JoinHostPort(host, port)
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		ServerName: host,
-		MinVersion: tls.VersionTLS12,
-	})
+
+	var cfg *tls.Config
+	if TLSConfig != nil {
+		cfg = TLSConfig.Clone()
+	} else {
+		cfg = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+	cfg.ServerName = host
+
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, cfg)
 	if err != nil {
 		return Info{
 			Status: "unavailable",
